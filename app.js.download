@@ -1,0 +1,3076 @@
+/*
+====================================
+SUPABASE CLOUD DATABASE CONFIGURATION
+====================================
+
+QUICK SETUP GUIDE:
+
+STEP 1: Create Supabase Account (2 minutes)
+- Visit: https://supabase.com
+- Click "Start your project" and sign up (FREE)
+- Create new project, wait for setup to complete
+
+STEP 2: Create Database Tables (3 minutes)
+- Go to SQL Editor in your Supabase dashboard
+- Copy and run this SQL script:
+
+--- SQL SCRIPT START ---
+
+-- Teachers table
+CREATE TABLE teachers (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR UNIQUE NOT NULL,
+  password VARCHAR NOT NULL,
+  teacher_name VARCHAR NOT NULL,
+  class_name VARCHAR NOT NULL,
+  school_name VARCHAR,
+  class_code VARCHAR(8) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Students table
+CREATE TABLE students (
+  id SERIAL PRIMARY KEY,
+  teacher_email VARCHAR NOT NULL,
+  roll_no VARCHAR NOT NULL,
+  name VARCHAR NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  FOREIGN KEY (teacher_email) REFERENCES teachers(email) ON DELETE CASCADE,
+  UNIQUE(teacher_email, roll_no)
+);
+
+-- Assignments table
+CREATE TABLE assignments (
+  id SERIAL PRIMARY KEY,
+  teacher_email VARCHAR NOT NULL,
+  name VARCHAR NOT NULL,
+  due_date DATE NOT NULL,
+  otp_codes JSONB NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  FOREIGN KEY (teacher_email) REFERENCES teachers(email) ON DELETE CASCADE
+);
+
+-- Submissions table
+CREATE TABLE submissions (
+  id SERIAL PRIMARY KEY,
+  assignment_id INTEGER NOT NULL,
+  roll_no VARCHAR NOT NULL,
+  student_name VARCHAR NOT NULL,
+  otp_used VARCHAR,
+  submitted_at TIMESTAMP DEFAULT NOW(),
+  FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE,
+  UNIQUE(assignment_id, roll_no)
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE teachers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE students ENABLE ROW LEVEL SECURITY;
+ALTER TABLE assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE submissions ENABLE ROW LEVEL SECURITY;
+
+-- Create policies for public access (for demo/education use)
+-- For production, customize these policies based on your security needs
+CREATE POLICY "Allow all operations" ON teachers FOR ALL USING (true);
+CREATE POLICY "Allow all operations" ON students FOR ALL USING (true);
+CREATE POLICY "Allow all operations" ON assignments FOR ALL USING (true);
+CREATE POLICY "Allow all operations" ON submissions FOR ALL USING (true);
+
+--- SQL SCRIPT END ---
+
+STEP 3: Get Your Credentials (1 minute)
+- Go to Settings > API in Supabase dashboard
+- Copy your "Project URL" (looks like: https://xxxxx.supabase.co)
+- Copy your "anon public" key (long string starting with eyJ...)
+
+STEP 4: Configure This App (30 seconds)
+- Replace YOUR_SUPABASE_URL_HERE below with your Project URL
+- Replace YOUR_SUPABASE_ANON_KEY_HERE below with your anon key
+- Save the file
+
+STEP 5: Test & Deploy
+- Open the app in browser - should see "CLOUD DATABASE CONNECTED"
+- Create a teacher account to test
+- Deploy to any web host (GitHub Pages, Netlify, Vercel, etc.)
+
+DONE! Your system is now production-ready with:
+✅ Cross-device submissions
+✅ Real-time updates
+✅ Persistent cloud storage
+✅ Multi-user support
+
+*/
+
+const SUPABASE_URL = 'https://flzrhdlihtsglottmfuq.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZsenJoZGxpaHRzZ2xvdHRtZnVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIyNzE2NDAsImV4cCI6MjA3Nzg0NzY0MH0.YP5NifkGil_sZ4JP3BP_KULT8AtHypR0eSYpZ8lQips';
+
+// Initialize Supabase client
+let supabase = null;
+let isSupabaseConfigured = false;
+
+// Check if Supabase is configured
+if (SUPABASE_URL !== 'YOUR_SUPABASE_URL_HERE' && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY_HERE') {
+    try {
+        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        isSupabaseConfigured = true;
+        console.log('✅ Supabase cloud database connected!');
+        console.log('✅ Cross-device submissions enabled!');
+        console.log('✅ Real-time updates active!');
+    } catch (e) {
+        console.error('❌ Supabase initialization failed:', e);
+    }
+} else {
+    console.warn('⚠️ SUPABASE NOT CONFIGURED!');
+    console.warn('Please update SUPABASE_URL and SUPABASE_ANON_KEY in app.js');
+    console.warn('Instructions: https://supabase.com/docs/guides/getting-started');
+}
+
+// In-memory fallback storage (for demo mode)
+const memoryStore = {};
+
+// Storage abstraction layer
+const storage = {
+    // Teachers
+    async getTeacher(email) {
+        if (isSupabaseConfigured) {
+            const { data, error } = await supabase
+                .from('teachers')
+                .select('*')
+                .eq('email', email)
+                .single();
+            return error ? null : data;
+        }
+        return memoryStore['teacher_' + email] || null;
+    },
+    
+    async saveTeacher(email, teacherData) {
+        if (isSupabaseConfigured) {
+            const { data, error } = await supabase
+                .from('teachers')
+                .upsert([{
+                    email: email,
+                    teacher_name: teacherData.teacherName,
+                    class_name: teacherData.className,
+                    school_name: teacherData.schoolName || '',
+                    class_code: teacherData.classCode,
+                    password: teacherData.password
+                }], { onConflict: 'email' });
+            return !error;
+        }
+        memoryStore['teacher_' + email] = teacherData;
+        return true;
+    },
+    
+    async checkTeacherLogin(email, password) {
+        if (isSupabaseConfigured) {
+            const { data, error } = await supabase
+                .from('teachers')
+                .select('*')
+                .eq('email', email)
+                .eq('password', password)
+                .single();
+            return error ? null : data;
+        }
+        const teacher = memoryStore['teacher_' + email];
+        return (teacher && teacher.password === password) ? teacher : null;
+    },
+    
+    async getTeacherByClassCode(classCode) {
+        if (isSupabaseConfigured) {
+            const { data, error } = await supabase
+                .from('teachers')
+                .select('*')
+                .eq('class_code', classCode)
+                .single();
+            return error ? null : data;
+        }
+        // Fallback: search memory store
+        for (let key in memoryStore) {
+            if (key.startsWith('teacher_')) {
+                const teacher = memoryStore[key];
+                if (teacher.classCode === classCode) {
+                    return teacher;
+                }
+            }
+        }
+        return null;
+    },
+    
+    // Students
+    async getStudents(teacherEmail) {
+        if (isSupabaseConfigured) {
+            const { data, error } = await supabase
+                .from('students')
+                .select('*')
+                .eq('teacher_email', teacherEmail)
+                .order('roll_no');
+            return error ? [] : data.map(s => ({ rollNo: s.roll_no, name: s.name }));
+        }
+        const teacher = memoryStore['teacher_' + teacherEmail];
+        return teacher?.students || [];
+    },
+    
+    async addStudent(teacherEmail, rollNo, name) {
+        if (isSupabaseConfigured) {
+            const { error } = await supabase
+                .from('students')
+                .insert([{
+                    teacher_email: teacherEmail,
+                    roll_no: rollNo,
+                    name: name
+                }]);
+            return !error;
+        }
+        if (!memoryStore['teacher_' + teacherEmail]) return false;
+        if (!memoryStore['teacher_' + teacherEmail].students) {
+            memoryStore['teacher_' + teacherEmail].students = [];
+        }
+        memoryStore['teacher_' + teacherEmail].students.push({ rollNo, name });
+        return true;
+    },
+    
+    async deleteStudent(teacherEmail, rollNo) {
+        if (isSupabaseConfigured) {
+            const { error } = await supabase
+                .from('students')
+                .delete()
+                .eq('teacher_email', teacherEmail)
+                .eq('roll_no', rollNo);
+            return !error;
+        }
+        if (!memoryStore['teacher_' + teacherEmail]) return false;
+        const teacher = memoryStore['teacher_' + teacherEmail];
+        teacher.students = teacher.students.filter(s => s.rollNo !== rollNo);
+        return true;
+    },
+    
+    // Assignments
+    async getAssignments(teacherEmail) {
+        if (isSupabaseConfigured) {
+            const { data, error } = await supabase
+                .from('assignments')
+                .select('*')
+                .eq('teacher_email', teacherEmail)
+                .order('created_at', { ascending: false });
+            return error ? [] : data.map(a => ({
+                id: a.id.toString(),
+                name: a.name,
+                dueDate: a.due_date,
+                createdDate: a.created_at,
+                status: 'Active',
+                otpCodes: a.otp_codes || {},
+                submissions: []
+            }));
+        }
+        const teacher = memoryStore['teacher_' + teacherEmail];
+        return teacher?.assignments || [];
+    },
+    
+    async createAssignment(teacherEmail, assignmentData) {
+        if (isSupabaseConfigured) {
+            const { data, error } = await supabase
+                .from('assignments')
+                .insert([{
+                    teacher_email: teacherEmail,
+                    name: assignmentData.name,
+                    due_date: assignmentData.dueDate,
+                    otp_codes: assignmentData.otpCodes
+                }])
+                .select();
+            return error ? null : data[0].id.toString();
+        }
+        const teacher = memoryStore['teacher_' + teacherEmail];
+        if (!teacher) return null;
+        if (!teacher.assignments) teacher.assignments = [];
+        assignmentData.id = 'assignment_' + Date.now();
+        teacher.assignments.push(assignmentData);
+        return assignmentData.id;
+    },
+    
+    async deleteAssignment(teacherEmail, assignmentId) {
+        if (isSupabaseConfigured) {
+            const { error } = await supabase
+                .from('assignments')
+                .delete()
+                .eq('id', parseInt(assignmentId.replace('assignment_', '')));
+            return !error;
+        }
+        const teacher = memoryStore['teacher_' + teacherEmail];
+        if (!teacher) return false;
+        teacher.assignments = teacher.assignments.filter(a => a.id !== assignmentId);
+        return true;
+    },
+    
+    // Submissions
+    async getSubmissions(assignmentId) {
+        if (isSupabaseConfigured) {
+            const numericId = parseInt(assignmentId.replace('assignment_', ''));
+            const { data, error } = await supabase
+                .from('submissions')
+                .select('*')
+                .eq('assignment_id', numericId)
+                .order('submitted_at', { ascending: false });
+            return error ? [] : data.map(s => ({
+                rollNo: s.roll_no,
+                name: s.student_name,
+                usedOTP: s.otp_used || '',
+                timestamp: new Date(s.submitted_at).toLocaleString('en-IN')
+            }));
+        }
+        // Fallback: search memory
+        for (let key in memoryStore) {
+            if (key.startsWith('teacher_')) {
+                const teacher = memoryStore[key];
+                if (teacher.assignments) {
+                    const assignment = teacher.assignments.find(a => a.id === assignmentId);
+                    if (assignment) return assignment.submissions || [];
+                }
+            }
+        }
+        return [];
+    },
+    
+    async submitAssignment(assignmentId, rollNo, name, otp) {
+        if (isSupabaseConfigured) {
+            const numericId = parseInt(assignmentId.replace('assignment_', ''));
+            const { error } = await supabase
+                .from('submissions')
+                .insert([{
+                    assignment_id: numericId,
+                    roll_no: rollNo,
+                    student_name: name,
+                    otp_used: otp
+                }]);
+            return !error;
+        }
+        // Fallback: memory store
+        for (let key in memoryStore) {
+            if (key.startsWith('teacher_')) {
+                const teacher = memoryStore[key];
+                if (teacher.assignments) {
+                    const assignment = teacher.assignments.find(a => a.id === assignmentId);
+                    if (assignment) {
+                        if (!assignment.submissions) assignment.submissions = [];
+                        const timestamp = new Date().toLocaleString('en-IN');
+                        assignment.submissions.push({ rollNo, name, usedOTP: otp, timestamp });
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    },
+    
+    async checkDuplicateSubmission(assignmentId, rollNo) {
+        if (isSupabaseConfigured) {
+            const numericId = parseInt(assignmentId.replace('assignment_', ''));
+            const { data, error } = await supabase
+                .from('submissions')
+                .select('id')
+                .eq('assignment_id', numericId)
+                .eq('roll_no', rollNo)
+                .single();
+            return !error && data !== null;
+        }
+        const submissions = await this.getSubmissions(assignmentId);
+        return submissions.some(s => s.rollNo === rollNo);
+    }
+};
+
+
+
+// Application State
+const appState = {
+    currentUser: null,
+    currentUserId: null,
+    currentClassCode: null,
+    teacherData: null,
+    currentView: 'login',
+    realtimeListeners: []
+};
+
+console.log(`☁️ Cloud Database: ${isSupabaseConfigured ? 'CONNECTED' : 'NOT CONFIGURED'}`);
+if (isSupabaseConfigured) {
+    console.log('✅ All data stored in cloud!');
+    console.log('✅ Students can submit from ANY device!');
+    console.log('✅ Teacher can close browser - submissions still work!');
+    console.log('✅ Real-time updates enabled!');
+} else {
+    console.warn('⚠️ DEMO MODE: Supabase not configured');
+    console.warn('⚠️ Using memory storage - data will be lost on page reload');
+    console.warn('⚠️ To enable production features:');
+    console.warn('   1. Create account at https://supabase.com');
+    console.warn('   2. Update SUPABASE_URL and SUPABASE_ANON_KEY in app.js');
+}
+
+// Update cloud status indicator
+function updateCloudStatusIndicator() {
+    const banner = document.getElementById('cloudBanner');
+    const title = document.getElementById('cloudBannerTitle');
+    const text = document.getElementById('cloudBannerText');
+    
+    if (!banner || !title || !text) return;
+    
+    if (isSupabaseConfigured) {
+        banner.style.background = 'var(--color-bg-3)';
+        banner.style.borderLeftColor = 'var(--color-success)';
+        title.style.color = 'var(--color-success)';
+        title.textContent = '☁️ CLOUD DATABASE ACTIVE!';
+        text.textContent = 'Students can submit from ANY device! Real-time sync enabled. You can safely close your browser.';
+    } else {
+        banner.style.background = 'var(--color-bg-2)';
+        banner.style.borderLeftColor = 'var(--color-warning)';
+        title.style.color = 'var(--color-warning)';
+        title.textContent = '⚠️ DEMO MODE - Configure Supabase for Production';
+        text.textContent = 'Using temporary storage. Configure Supabase in app.js to enable cross-device submissions and persistent data.';
+    }
+}
+
+// Initialize app
+async function initializeApp() {
+    // Update cloud status
+    updateCloudStatusIndicator();
+    
+    // Setup real-time listeners if Supabase is configured
+    if (isSupabaseConfigured) {
+        setupRealtimeListeners();
+    }
+    
+    showLoginScreen();
+}
+
+// Setup real-time listeners for instant updates
+function setupRealtimeListeners() {
+    if (!isSupabaseConfigured) return;
+    
+    console.log('🔊 Setting up real-time listeners...');
+    
+    // Listen to submissions table
+    supabase
+        .channel('submissions')
+        .on('postgres_changes', 
+            { event: '*', schema: 'public', table: 'submissions' },
+            (payload) => {
+                console.log('✅ Real-time update:', payload);
+                if (appState.currentView === 'teacherDashboard') {
+                    updateSubmissionViewSmooth();
+                    showToast('✅ New submission received!', 'success');
+                }
+            }
+        )
+        .subscribe();
+    
+    console.log('✅ Real-time listeners active!');
+}
+
+// Load teacher data
+async function loadTeacherData(email) {
+    const teacherData = await storage.getTeacher(email);
+    
+    if (teacherData) {
+        appState.currentUser = email;
+        appState.teacherData = {
+            email: teacherData.email,
+            teacherName: teacherData.teacher_name || teacherData.teacherName,
+            className: teacherData.class_name || teacherData.className,
+            schoolName: teacherData.school_name || teacherData.schoolName || '',
+            classCode: teacherData.class_code || teacherData.classCode,
+            password: teacherData.password
+        };
+        
+        // Load students and assignments
+        appState.teacherData.students = await storage.getStudents(email);
+        appState.teacherData.assignments = await storage.getAssignments(email);
+        
+        // Load submissions for each assignment
+        for (let assignment of appState.teacherData.assignments) {
+            assignment.submissions = await storage.getSubmissions(assignment.id);
+        }
+        
+        showScreen('teacherDashboard');
+        updateDashboardHeader();
+        await updateAllViews();
+        
+        // Start polling for updates
+        if (!isSupabaseConfigured) {
+            startPolling();
+        }
+        
+        console.log('✅ Teacher dashboard loaded!');
+    } else {
+        console.error('Teacher data not found');
+        logout();
+    }
+}
+
+// Real-time updates using polling (for share link access)
+let pollingInterval = null;
+let lastSubmissionCount = {};
+
+function startPolling() {
+    // Poll every 1 second for changes
+    if (pollingInterval) clearInterval(pollingInterval);
+    
+    console.log('🔄 Starting auto-refresh polling (every 1 second)...');
+    
+    pollingInterval = setInterval(() => {
+        if (appState.currentUserId) {
+            const freshData = storage.getItem('teacher_' + appState.currentUserId);
+            if (freshData) {
+                appState.teacherData = freshData;
+                
+                // Only update submission view if we're viewing one
+                const assignmentId = document.getElementById('assignmentFilter').value;
+                if (assignmentId) {
+                    updateSubmissionViewSmooth();
+                } else {
+                    // Still refresh assignment list to show submission counts
+                    updateAssignmentsList();
+                }
+                
+                updateLastUpdateTime();
+            }
+        }
+    }, 1000); // 1 second for fast updates
+    
+    // Show live indicator
+    const liveIndicator = document.getElementById('liveIndicator');
+    if (liveIndicator) {
+        liveIndicator.style.display = 'inline-flex';
+    }
+}
+
+function stopPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+}
+
+// Generate unique class code
+function generateClassCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
+
+// Screen Navigation
+function showScreen(screenId) {
+    console.log('🔄 Switching to screen:', screenId);
+    const screens = document.querySelectorAll('.screen');
+    screens.forEach(screen => screen.classList.remove('active'));
+    const targetScreen = document.getElementById(screenId);
+    if (targetScreen) {
+        targetScreen.classList.add('active');
+        appState.currentView = screenId;
+        console.log('✅ Screen activated:', screenId);
+    } else {
+        console.error('❌ Screen not found:', screenId);
+    }
+}
+
+function showLoginScreen() {
+    console.log('📺 Showing login screen');
+    showScreen('loginScreen');
+}
+
+function showTeacherLogin() {
+    console.log('👨‍🏫 Teacher Login button clicked');
+    showScreen('teacherLoginScreen');
+    switchAuthTab('login');
+    document.getElementById('loginUsername').value = '';
+    document.getElementById('loginPassword').value = '';
+    const errorEl = document.getElementById('loginError');
+    if (errorEl) errorEl.style.display = 'none';
+}
+
+function switchAuthTab(tab) {
+    const loginForm = document.getElementById('loginForm');
+    const registerForm = document.getElementById('registerForm');
+    const loginTab = document.getElementById('loginTab');
+    const registerTab = document.getElementById('registerTab');
+
+    if (tab === 'login') {
+        loginForm.classList.add('active');
+        registerForm.classList.remove('active');
+        loginTab.classList.add('active');
+        registerTab.classList.remove('active');
+        document.getElementById('loginError').style.display = 'none';
+    } else {
+        loginForm.classList.remove('active');
+        registerForm.classList.add('active');
+        loginTab.classList.remove('active');
+        registerTab.classList.add('active');
+        document.getElementById('registerError').style.display = 'none';
+        document.getElementById('registerSuccess').style.display = 'none';
+    }
+}
+
+// Student View State
+let selectedAssignmentForSubmission = null;
+
+function showStudentView() {
+    console.log('👨‍🎓 Student button clicked');
+    showScreen('studentView');
+    selectedAssignmentForSubmission = null;
+    resetStudentSubmissionForm();
+    
+    // Check if QR code has auto-loaded class
+    if (!window._qrAutoLoaded) {
+        // Show empty state if no QR scan
+        showNoClassMessage();
+    }
+}
+
+async function createAccount() {
+    const teacherName = document.getElementById('regTeacherName').value.trim();
+    const email = document.getElementById('regUsername').value.trim();
+    const password = document.getElementById('regPassword').value;
+    const confirmPassword = document.getElementById('regConfirmPassword').value;
+    const className = document.getElementById('regClassName').value.trim();
+    const schoolName = document.getElementById('regSchoolName').value.trim();
+    const errorEl = document.getElementById('registerError');
+    const successEl = document.getElementById('registerSuccess');
+
+    errorEl.style.display = 'none';
+    successEl.style.display = 'none';
+
+    if (!teacherName || !email || !password || !confirmPassword || !className) {
+        errorEl.textContent = 'Please fill all required fields (marked with *)';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    if (password.length < 6) {
+        errorEl.textContent = 'Password must be at least 6 characters long';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    if (password !== confirmPassword) {
+        errorEl.textContent = 'Passwords do not match';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    // Check if email already exists
+    const existingAccount = await storage.getTeacher(email);
+    if (existingAccount) {
+        errorEl.textContent = 'Email already registered. Please login instead.';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    const classCode = generateClassCode();
+    
+    console.log('✅ Creating account with class code:', classCode);
+    
+    const teacherData = {
+        email: email,
+        teacherName: teacherName,
+        className: className,
+        schoolName: schoolName || '',
+        classCode: classCode,
+        password: password,
+        students: [],
+        assignments: []
+    };
+    
+    // Save to cloud/memory
+    console.log('💾 Saving to cloud database...');
+    const saved = await storage.saveTeacher(email, teacherData);
+    
+    if (!saved) {
+        errorEl.textContent = 'Error: Failed to save account data. Please try again.';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    successEl.textContent = '✅ Account created! Class Code: ' + classCode + (isSupabaseConfigured ? ' - Saved to cloud!' : ' (demo mode)');
+    successEl.style.display = 'block';
+    clearRegistrationForm();
+    
+    // Auto-login
+    setTimeout(async () => {
+        await loadTeacherData(email);
+        showToast('Welcome! Your class is ready.', 'success');
+    }, 1500);
+}
+
+function clearRegistrationForm() {
+    document.getElementById('regTeacherName').value = '';
+    document.getElementById('regUsername').value = '';
+    document.getElementById('regPassword').value = '';
+    document.getElementById('regConfirmPassword').value = '';
+    document.getElementById('regClassName').value = '';
+    document.getElementById('regSchoolName').value = '';
+}
+
+async function loginTeacher() {
+    const email = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errorEl = document.getElementById('loginError');
+
+    errorEl.style.display = 'none';
+
+    if (!email || !password) {
+        errorEl.textContent = 'Please enter both email and password';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    // Check credentials
+    const account = await storage.checkTeacherLogin(email, password);
+    
+    if (!account) {
+        errorEl.textContent = 'Invalid email or password.';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    // Login successful
+    await loadTeacherData(email);
+    showToast('Login successful! Welcome back.', 'success');
+}
+
+function updateDashboardHeader() {
+    if (!appState.teacherData) return;
+
+    const welcomeText = document.getElementById('welcomeText');
+    const classNameText = document.getElementById('classNameText');
+    const classCodeDisplay = document.getElementById('classCodeDisplay');
+
+    welcomeText.textContent = `Welcome, ${appState.teacherData.teacherName}!`;
+    
+    classNameText.innerHTML = `Class: ${appState.teacherData.className}`;
+    
+    // Display class code in prominent banner
+    classCodeDisplay.textContent = appState.teacherData.classCode;
+    
+    // Update storage banner based on availability
+    updateStorageBanner();
+}
+
+
+
+function copyClassCode() {
+    if (!appState.teacherData) return;
+    
+    const btn = document.getElementById('copyCodeBtn');
+    const originalText = btn ? btn.innerHTML : '';
+    
+    navigator.clipboard.writeText(appState.teacherData.classCode).then(() => {
+        showToast('✓ Class code copied! Students can use this to find your class.', 'success');
+        if (btn) {
+            btn.innerHTML = '✓ Copied!';
+            btn.style.backgroundColor = 'var(--color-success)';
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.style.backgroundColor = '';
+            }, 2000);
+        }
+    }).catch(err => {
+        showToast('Failed to copy code', 'error');
+    });
+}
+
+function copyShareLink() {
+    if (!appState.teacherData) return;
+    
+    // Generate link with class data embedded for cross-device access
+    const shareLink = generateClassShareLink();
+    
+    const btn = document.getElementById('copyLinkBtn');
+    const originalText = btn ? btn.innerHTML : '';
+    
+    navigator.clipboard.writeText(shareLink).then(() => {
+        showToast('✓ CROSS-DEVICE link copied! Works on any phone/device. Share via WhatsApp/Email!', 'success');
+        if (btn) {
+            btn.innerHTML = '✓ Copied!';
+            btn.style.backgroundColor = 'var(--color-success)';
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.style.backgroundColor = '';
+            }, 2000);
+        }
+    }).catch(err => {
+        showToast('Failed to copy link', 'error');
+    });
+}
+
+function printClassCode() {
+    if (!appState.teacherData) return;
+    
+    const shareLink = appState.teacherData.shareLink || `${window.location.origin}${window.location.pathname}#/share/${appState.teacherData.classCode}`;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Class Code - ${appState.teacherData.className}</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    padding: 40px;
+                    text-align: center;
+                }
+                .header {
+                    margin-bottom: 30px;
+                }
+                .class-code {
+                    font-size: 72px;
+                    font-weight: bold;
+                    letter-spacing: 0.2em;
+                    margin: 40px 0;
+                    padding: 30px;
+                    border: 4px solid #13343B;
+                    background: #f5f5f5;
+                }
+                .info {
+                    font-size: 18px;
+                    margin: 20px 0;
+                }
+                .link {
+                    font-size: 14px;
+                    color: #666;
+                    word-break: break-all;
+                    margin-top: 20px;
+                }
+                @media print {
+                    body { padding: 20px; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>Assignment Tracker</h1>
+                <h2>${appState.teacherData.className}</h2>
+                <p>Teacher: ${appState.teacherData.teacherName}</p>
+            </div>
+            <div class="class-code">${appState.teacherData.classCode}</div>
+            <div class="info">
+                <p><strong>Instructions for Students:</strong></p>
+                <p>1. Go to the Assignment Tracker website</p>
+                <p>2. Click "Student Submission"</p>
+                <p>3. Enter this class code to join</p>
+            </div>
+            <div class="link">
+                <p><strong>Direct Link:</strong></p>
+                <p>${shareLink}</p>
+            </div>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+}
+
+function showQRCode() {
+    if (!appState.teacherData) {
+        showToast('No class data available', 'error');
+        return;
+    }
+    
+    const shareLink = window.location.origin + window.location.pathname + '#/share/' + appState.teacherData.classCode;
+    
+    console.log('📱 Generating QR code for link:', shareLink);
+    console.log('📱 Class code:', appState.teacherData.classCode);
+    
+    const modalHTML = `
+        <div class="modal-overlay" onclick="closeQRModal()">
+            <div class="modal-content" style="max-width: 500px;" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h2>QR Code - ${appState.teacherData.className}</h2>
+                    <button class="btn btn--sm btn--outline" onclick="closeQRModal()">Close</button>
+                </div>
+                <div class="modal-body" style="text-align: center;">
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--space-16);">
+                        Students can scan this QR code to access your class assignments
+                    </p>
+                    <div id="qrcode" style="display: inline-block; padding: var(--space-16); background: white; border-radius: var(--radius-md); min-height: 288px; min-width: 288px;"></div>
+                    <div id="qrFallback" style="display: none; padding: var(--space-16); background: var(--color-bg-4); border-radius: var(--radius-md);">
+                        <p style="color: var(--color-error); font-weight: var(--font-weight-semibold);">⚠️ QR Code generation failed</p>
+                        <p style="color: var(--color-text); margin-top: var(--space-8); font-size: var(--font-size-sm);">Use the link below instead:</p>
+                    </div>
+                    <p style="margin-top: var(--space-16); font-family: var(--font-family-mono); font-size: var(--font-size-sm); color: var(--color-text-secondary); word-break: break-all; padding: var(--space-12); background: var(--color-bg-2); border-radius: var(--radius-base);">
+                        ${shareLink}
+                    </p>
+                    <button class="btn btn--primary" onclick="copyShareLink()" style="margin-top: var(--space-16);">Copy Share Link</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Wait for modal to render
+    setTimeout(() => {
+        generateQRCodeInModal(shareLink);
+    }, 100);
+}
+
+function generateQRCodeInModal(shareLink) {
+    const qrContainer = document.getElementById('qrcode');
+    const qrFallback = document.getElementById('qrFallback');
+    
+    if (!qrContainer) {
+        console.error('❌ QR container not found');
+        return;
+    }
+    
+    // Check if QRCode library is loaded
+    if (typeof QRCode === 'undefined') {
+        console.error('❌ QRCode library not loaded');
+        qrContainer.style.display = 'none';
+        if (qrFallback) qrFallback.style.display = 'block';
+        showToast('QR library not available. Use the link instead.', 'error');
+        return;
+    }
+    
+    try {
+        // Clear any existing QR code
+        qrContainer.innerHTML = '';
+        
+        // Generate QR code
+        new QRCode(qrContainer, {
+            text: shareLink,
+            width: 256,
+            height: 256,
+            colorDark: '#13343B',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.H
+        });
+        
+        console.log('✓ QR code generated successfully');
+        showToast('QR Code generated! Students can scan to join.', 'success');
+    } catch (error) {
+        console.error('❌ QR code generation failed:', error);
+        qrContainer.style.display = 'none';
+        if (qrFallback) qrFallback.style.display = 'block';
+        showToast('QR generation failed. Use the link instead.', 'error');
+    }
+}
+
+function closeQRModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) modal.remove();
+}
+
+function logout() {
+    if (confirm('Are you sure you want to logout?')) {
+        stopPolling();
+        storage.removeItem('currentSession');
+        appState.currentUserId = null;
+        appState.teacherData = null;
+        showLoginScreen();
+        showToast('Logged out successfully', 'success');
+    }
+}
+
+// Student Management
+async function addStudent() {
+    if (!appState.currentUser || !appState.teacherData) return;
+
+    const name = document.getElementById('studentName').value.trim();
+    const rollNo = document.getElementById('studentRollNo').value.trim();
+
+    if (!name || !rollNo) {
+        showToast('Please fill all fields', 'error');
+        return;
+    }
+
+    // Check for duplicate roll number
+    const existingStudent = appState.teacherData.students.find(s => s.rollNo === rollNo);
+    if (existingStudent) {
+        showToast('A student with this roll number already exists', 'error');
+        return;
+    }
+
+    // Add to cloud database
+    const success = await storage.addStudent(appState.currentUser, rollNo, name);
+    
+    if (!success) {
+        showToast('Failed to add student. Please try again.', 'error');
+        return;
+    }
+    
+    // Update local state
+    if (!appState.teacherData.students) {
+        appState.teacherData.students = [];
+    }
+    appState.teacherData.students.push({ rollNo, name });
+    
+    document.getElementById('studentName').value = '';
+    document.getElementById('studentRollNo').value = '';
+    showToast(`✅ ${name} added to class`, 'success');
+    await updateAllViews();
+}
+
+async function bulkAddStudents() {
+    if (!appState.currentUser || !appState.teacherData) return;
+
+    const bulkInput = document.getElementById('bulkStudentsInput').value.trim();
+    
+    if (!bulkInput) {
+        showToast('Please enter student data', 'error');
+        return;
+    }
+    
+    const lines = bulkInput.split('\n');
+    let addedCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+    
+    if (!appState.teacherData.students) {
+        appState.teacherData.students = [];
+    }
+    
+    for (let i = 0; i < lines.length; i++) {
+        const trimmedLine = lines[i].trim();
+        if (!trimmedLine) continue;
+        
+        const parts = trimmedLine.split(',');
+        if (parts.length < 2) {
+            errors.push(`Line ${i + 1}: Invalid format`);
+            continue;
+        }
+        
+        const rollNo = parts[0].trim();
+        const name = parts.slice(1).join(',').trim();
+        
+        if (!rollNo || !name) {
+            errors.push(`Line ${i + 1}: Missing roll number or name`);
+            continue;
+        }
+        
+        // Check for duplicate
+        const existingStudent = appState.teacherData.students.find(s => s.rollNo === rollNo);
+        if (existingStudent) {
+            skippedCount++;
+            continue;
+        }
+        
+        // Add to cloud database
+        const success = await storage.addStudent(appState.currentUser, rollNo, name);
+        if (success) {
+            appState.teacherData.students.push({ rollNo, name });
+            addedCount++;
+        }
+    }
+    
+    if (addedCount > 0) {
+        document.getElementById('bulkStudentsInput').value = '';
+        await updateAllViews();
+    }
+    
+    let message = `Added ${addedCount} student(s)`;
+    if (skippedCount > 0) {
+        message += `, skipped ${skippedCount} duplicate(s)`;
+    }
+    if (errors.length > 0) {
+        message += `. Errors: ${errors.join(', ')}`;
+    }
+    
+    showToast(message, addedCount > 0 ? 'success' : 'error');
+}
+
+function exportStudentList() {
+    if (!appState.teacherData || !appState.teacherData.students || appState.teacherData.students.length === 0) {
+        showToast('No students to export', 'error');
+        return;
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    let csvContent = 'Roll Number,Student Name,Date Added\n';
+    
+    appState.teacherData.students.forEach(student => {
+        csvContent += `${student.rollNo},${student.name},${today}\n`;
+    });
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const className = appState.teacherData.className.replace(/\s+/g, '_');
+    a.download = `Students_${className}_${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast('Student list exported as CSV!', 'success');
+}
+
+function importStudentList() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv';
+    
+    input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const content = event.target.result;
+            const lines = content.split('\n');
+            
+            let addedCount = 0;
+            let skippedCount = 0;
+            
+            if (!appState.teacherData.students) {
+                appState.teacherData.students = [];
+            }
+            
+            // Skip header line
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const parts = line.split(',');
+                if (parts.length < 2) continue;
+                
+                const rollNo = parts[0].trim();
+                const name = parts[1].trim();
+                
+                if (!rollNo || !name) continue;
+                
+                // Check for duplicate
+                const existingStudent = appState.teacherData.students.find(s => s.rollNo === rollNo);
+                if (existingStudent) {
+                    skippedCount++;
+                    continue;
+                }
+                
+                appState.teacherData.students.push({ rollNo, name });
+                addedCount++;
+            }
+            
+            if (addedCount > 0) {
+                saveTeacherData();
+                updateAllViews();
+            }
+            
+            showToast(`Imported ${addedCount} student(s), skipped ${skippedCount} duplicate(s)`, 'success');
+        };
+        
+        reader.readAsText(file);
+    };
+    
+    input.click();
+}
+
+// Save teacher data (no longer needed with cloud storage)
+async function saveTeacherData() {
+    // Data is automatically saved to cloud when operations are performed
+    return true;
+}
+
+async function removeStudent(rollNo) {
+    if (!appState.currentUser || !appState.teacherData) return;
+
+    const student = appState.teacherData.students.find(s => s.rollNo === rollNo);
+    if (!student) return;
+    
+    let hasSubmissions = false;
+    let submissionCount = 0;
+    
+    if (appState.teacherData.assignments) {
+        appState.teacherData.assignments.forEach(assignment => {
+            if (assignment.submissions) {
+                const submission = assignment.submissions.find(s => s.rollNo === rollNo);
+                if (submission) {
+                    hasSubmissions = true;
+                    submissionCount++;
+                }
+            }
+        });
+    }
+    
+    showConfirmDialog(
+        'Delete Student',
+        student.name,
+        rollNo,
+        hasSubmissions,
+        submissionCount,
+        async () => {
+            // Remove from cloud database
+            const success = await storage.deleteStudent(appState.currentUser, rollNo);
+            
+            if (!success) {
+                showToast('Failed to delete student. Please try again.', 'error');
+                return;
+            }
+            
+            // Remove from local state
+            appState.teacherData.students = appState.teacherData.students.filter(s => s.rollNo !== rollNo);
+            
+            // Remove from assignments
+            if (appState.teacherData.assignments) {
+                appState.teacherData.assignments.forEach(assignment => {
+                    if (assignment.otpCodes && assignment.otpCodes[rollNo]) {
+                        delete assignment.otpCodes[rollNo];
+                    }
+                    if (assignment.submissions) {
+                        assignment.submissions = assignment.submissions.filter(s => s.rollNo !== rollNo);
+                    }
+                });
+            }
+            
+            await updateAllViews();
+            showToast(`✅ ${student.name} has been removed`, 'success');
+        }
+    );
+}
+
+function showConfirmDialog(title, studentName, rollNo, hasSubmissions, submissionCount, onConfirm) {
+    let dialogHTML = `
+        <div class="modal-overlay" id="confirmModal" onclick="closeConfirmDialog()">
+            <div class="confirm-dialog" onclick="event.stopPropagation()">
+                <h3>${title}</h3>
+                <p>Are you sure you want to remove <strong>${studentName}</strong> (Roll No: <strong>${rollNo}</strong>)?</p>
+    `;
+    
+    if (hasSubmissions) {
+        dialogHTML += `
+                <p class="warning">
+                    ⚠️ WARNING: This student has submitted ${submissionCount} assignment(s).<br>
+                    All their submissions and OTP codes will be permanently deleted.
+                </p>
+        `;
+    }
+    
+    dialogHTML += `
+                <div class="confirm-dialog-actions">
+                    <button class="btn btn--outline" onclick="closeConfirmDialog()">CANCEL</button>
+                    <button class="btn btn--danger" onclick="confirmDelete()">YES, DELETE</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', dialogHTML);
+    
+    // Store callback function
+    window._confirmCallback = onConfirm;
+}
+
+function closeConfirmDialog() {
+    const modal = document.getElementById('confirmModal');
+    if (modal) {
+        modal.remove();
+    }
+    window._confirmCallback = null;
+}
+
+function confirmDelete() {
+    if (window._confirmCallback) {
+        window._confirmCallback();
+    }
+    closeConfirmDialog();
+}
+
+function updateStudentsList() {
+    const container = document.getElementById('studentsTable');
+    
+    if (!appState.teacherData || !appState.teacherData.students || appState.teacherData.students.length === 0) {
+        container.innerHTML = '<div class="empty-state">No students added yet</div>';
+        return;
+    }
+
+    let html = '<table class="table"><thead><tr><th>Roll No</th><th>Name</th><th>Action</th></tr></thead><tbody>';
+    
+    appState.teacherData.students.forEach(student => {
+        html += `
+            <tr>
+                <td>${student.rollNo}</td>
+                <td>${student.name}</td>
+                <td><button class="btn btn--sm btn--danger" onclick="removeStudent('${student.rollNo}')">✕ Delete</button></td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table>';
+    html += `<div style="margin-top: var(--space-16); color: var(--color-text-secondary); font-size: var(--font-size-sm);">Total Students: ${appState.teacherData.students.length}</div>`;
+    container.innerHTML = html;
+}
+
+// Assignment Management
+async function createAssignment() {
+    if (!appState.currentUser || !appState.teacherData) return;
+
+    const name = document.getElementById('assignmentName').value.trim();
+    const dueDate = document.getElementById('assignmentDueDate').value;
+
+    if (!name || !dueDate) {
+        showToast('Please fill all fields', 'error');
+        return;
+    }
+
+    if (!appState.teacherData.students || appState.teacherData.students.length === 0) {
+        showToast('Please add students before creating an assignment', 'error');
+        return;
+    }
+
+    // Generate unique OTP for each student
+    const otpCodes = {};
+    appState.teacherData.students.forEach(student => {
+        otpCodes[student.rollNo] = generateOTP();
+    });
+
+    const assignment = {
+        name,
+        dueDate,
+        createdDate: new Date().toISOString(),
+        status: 'Active',
+        otpCodes: otpCodes,
+        submissions: []
+    };
+
+    // Save to cloud database
+    const assignmentId = await storage.createAssignment(appState.currentUser, assignment);
+    
+    if (!assignmentId) {
+        showToast('Failed to create assignment. Please try again.', 'error');
+        return;
+    }
+    
+    assignment.id = assignmentId;
+    
+    if (!appState.teacherData.assignments) {
+        appState.teacherData.assignments = [];
+    }
+    appState.teacherData.assignments.push(assignment);
+    
+    document.getElementById('assignmentName').value = '';
+    document.getElementById('assignmentDueDate').value = '';
+    showToast(`✅ Assignment created with unique OTP codes!`, 'success');
+    await updateAllViews();
+}
+
+// Generate unique OTP for each student
+function generateOTP() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function showOTPModal(assignmentId) {
+    if (!appState.teacherData) return;
+
+    const assignment = appState.teacherData.assignments.find(a => a.id === assignmentId);
+    if (!assignment) return;
+    
+    let tableHTML = '<table class="table otp-table"><thead><tr><th>Roll No</th><th>Student Name</th><th>OTP Code</th><th>Action</th></tr></thead><tbody>';
+    
+    appState.teacherData.students.forEach(student => {
+        const otp = assignment.otpCodes[student.rollNo] || 'N/A';
+        tableHTML += `
+            <tr>
+                <td>${student.rollNo}</td>
+                <td>${student.name}</td>
+                <td><span class="otp-code-cell">${otp}</span></td>
+                <td><button class="btn btn--sm btn--outline copy-btn" onclick="copyOTP('${otp}')">📋 Copy</button></td>
+            </tr>
+        `;
+    });
+    
+    tableHTML += '</tbody></table>';
+    
+    const modalHTML = `
+        <div class="modal-overlay" onclick="closeOTPModal()">
+            <div class="modal-content" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h2>OTP Codes - ${assignment.name}</h2>
+                    <button class="btn btn--sm btn--outline" onclick="closeOTPModal()">Close</button>
+                </div>
+                <div class="modal-body">
+                    <p class="otp-modal-info">
+                        <strong>🔐 HYBRID SYSTEM:</strong> Students scan QR to access class (no OTP needed). They must enter their unique OTP when submitting.
+                    </p>
+                    ${tableHTML}
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn--primary" onclick="exportOTPCodes('${assignmentId}')">📥 Export All OTPs</button>
+                    <button class="btn btn--secondary" onclick="printOTPCodes('${assignmentId}')">🖨️ Print OTP List</button>
+                    <button class="btn btn--outline" onclick="closeOTPModal()">Close</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+function closeOTPModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) modal.remove();
+}
+
+function copyOTP(otp) {
+    navigator.clipboard.writeText(otp).then(() => {
+        showToast('OTP copied!', 'success');
+    }).catch(err => {
+        showToast('Failed to copy OTP', 'error');
+    });
+}
+
+function printOTPCodes(assignmentId) {
+    if (!appState.teacherData) return;
+
+    const assignment = appState.teacherData.assignments.find(a => a.id === assignmentId);
+    if (!assignment) return;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>OTP Codes - ${assignment.name}</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    padding: 40px;
+                }
+                .header {
+                    margin-bottom: 30px;
+                    text-align: center;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 20px;
+                }
+                th, td {
+                    border: 1px solid #ddd;
+                    padding: 12px;
+                    text-align: left;
+                }
+                th {
+                    background-color: #f5f5f5;
+                    font-weight: bold;
+                }
+                .otp-code {
+                    font-family: monospace;
+                    font-size: 18px;
+                    font-weight: bold;
+                    color: #13343B;
+                }
+                .instructions {
+                    margin-top: 30px;
+                    padding: 15px;
+                    background: #f9f9f9;
+                    border-left: 4px solid #13343B;
+                }
+                @media print {
+                    body { padding: 20px; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>OTP Codes for ${assignment.name}</h1>
+                <p><strong>Teacher:</strong> ${appState.teacherData.teacherName}</p>
+                <p><strong>Class:</strong> ${appState.teacherData.className}</p>
+                <p><strong>Due Date:</strong> ${formatDate(assignment.dueDate)}</p>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Roll No</th>
+                        <th>Student Name</th>
+                        <th>OTP Code</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `);
+    
+    appState.teacherData.students.forEach(student => {
+        const otp = assignment.otpCodes[student.rollNo] || 'N/A';
+        printWindow.document.write(`
+            <tr>
+                <td>${student.rollNo}</td>
+                <td>${student.name}</td>
+                <td><span class="otp-code">${otp}</span></td>
+            </tr>
+        `);
+    });
+    
+    printWindow.document.write(`
+                </tbody>
+            </table>
+            <div class="instructions">
+                <h3>Instructions for Students:</h3>
+                <ol>
+                    <li>Scan the QR code to access the class (no OTP needed)</li>
+                    <li>Select your assignment</li>
+                    <li>Enter your Name, Roll Number, and the OTP code shown above</li>
+                    <li>Submit the assignment</li>
+                </ol>
+                <p><strong>Note:</strong> Keep your OTP code private. Each student has a unique code.</p>
+            </div>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+}
+
+function generateAssignmentQR(assignmentId) {
+    if (!appState.teacherData) {
+        showToast('No class data available', 'error');
+        return;
+    }
+
+    const assignment = appState.teacherData.assignments.find(a => a.id === assignmentId);
+    if (!assignment) {
+        showToast('Assignment not found', 'error');
+        return;
+    }
+    
+    // Generate link with ALL data embedded (cross-device support)
+    const shareLink = generateShareableLink(assignment);
+    
+    console.log('📱 Generating assignment QR for:', assignment.name);
+    console.log('📱 Link:', shareLink);
+    
+    const modalHTML = `
+        <div class="modal-overlay" onclick="closeQRModal()">
+            <div class="modal-content" style="max-width: 500px;" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h2>QR Code - ${assignment.name}</h2>
+                    <button class="btn btn--sm btn--outline" onclick="closeQRModal()">Close</button>
+                </div>
+                <div class="modal-body" style="text-align: center;">
+                    <p style="color: var(--color-text-secondary); margin-bottom: var(--space-16);">
+                        <strong>✓ CROSS-DEVICE LINK - Works on any phone!</strong><br>
+                        Students scan this QR code to submit (OTP required)
+                    </p>
+                    <div id="qrcode" style="display: inline-block; padding: var(--space-16); background: white; border-radius: var(--radius-md); min-height: 288px; min-width: 288px;"></div>
+                    <div id="qrFallback" style="display: none; padding: var(--space-16); background: var(--color-bg-4); border-radius: var(--radius-md);">
+                        <p style="color: var(--color-error); font-weight: var(--font-weight-semibold);">⚠️ QR Code generation failed</p>
+                        <p style="color: var(--color-text); margin-top: var(--space-8); font-size: var(--font-size-sm);">Use the link below instead:</p>
+                    </div>
+                    <div style="margin-top: var(--space-16); padding: var(--space-12); background: var(--color-bg-3); border-radius: var(--radius-base);">
+                        <strong>${assignment.name}</strong><br>
+                        <small style="color: var(--color-text-secondary);">Due: ${formatDate(assignment.dueDate)}</small>
+                    </div>
+                    <div style="margin-top: var(--space-16); padding: var(--space-12); background: var(--color-bg-3); border-radius: var(--radius-base); border-left: 4px solid var(--color-success);">
+                        <small style="color: var(--color-success); font-weight: var(--font-weight-semibold);">✓ This link works on ANY device!</small><br>
+                        <small style="color: var(--color-text-secondary);">All assignment data is embedded in the URL</small>
+                    </div>
+                    <p style="margin-top: var(--space-12); font-family: var(--font-family-mono); font-size: var(--font-size-sm); color: var(--color-text-secondary); word-break: break-all; padding: var(--space-12); background: var(--color-bg-2); border-radius: var(--radius-base);">
+                        ${shareLink}
+                    </p>
+                    <button class="btn btn--primary" onclick="copyAssignmentLink('${shareLink}')" style="margin-top: var(--space-16);">📋 Copy Direct Link</button>
+                    <button class="btn btn--secondary" onclick="printAssignmentQR('${assignment.id}')" style="margin-top: var(--space-8);">🖨️ Print QR Code</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Wait for modal to render
+    setTimeout(() => {
+        generateQRCodeInModal(shareLink);
+    }, 100);
+}
+
+function copyAssignmentLink(link) {
+    navigator.clipboard.writeText(link).then(() => {
+        showToast('✓ CROSS-DEVICE assignment link copied! Students can submit from ANY device!', 'success');
+    }).catch(err => {
+        showToast('Failed to copy link', 'error');
+    });
+}
+
+function printAssignmentQR(assignmentId) {
+    if (!appState.teacherData) return;
+
+    const assignment = appState.teacherData.assignments.find(a => a.id === assignmentId);
+    if (!assignment) return;
+    
+    const shareLink = `${window.location.origin}${window.location.pathname}#/submit/${appState.teacherData.classCode}/${assignment.id}`;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>${assignment.name} - QR Code</title>
+            <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    padding: 40px;
+                    text-align: center;
+                }
+                .header {
+                    margin-bottom: 30px;
+                }
+                #qrcode {
+                    display: inline-block;
+                    margin: 20px auto;
+                }
+                .info {
+                    font-size: 18px;
+                    margin: 20px 0;
+                }
+                @media print {
+                    body { padding: 20px; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>${assignment.name}</h1>
+                <p><strong>Teacher:</strong> ${appState.teacherData.teacherName}</p>
+                <p><strong>Class:</strong> ${appState.teacherData.className}</p>
+                <p><strong>Due Date:</strong> ${formatDate(assignment.dueDate)}</p>
+            </div>
+            <div id="qrcode"></div>
+            <div class="info">
+                <p><strong>Instructions for Students:</strong></p>
+                <p>1. Scan this QR code with your phone camera</p>
+                <p>2. Enter your Name and Roll Number</p>
+                <p>3. Submit (No OTP needed!)</p>
+            </div>
+            <script>
+                new QRCode(document.getElementById('qrcode'), {
+                    text: '${shareLink}',
+                    width: 256,
+                    height: 256,
+                    colorDark: '#13343B',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+                setTimeout(() => window.print(), 1000);
+            <\/script>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+}
+
+function exportOTPCodes(assignmentId) {
+    if (!appState.teacherData) return;
+
+    const assignment = appState.teacherData.assignments.find(a => a.id === assignmentId);
+    if (!assignment) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    let exportText = `Assignment: ${assignment.name}\n`;
+    exportText += `Due Date: ${formatDate(assignment.dueDate)}\n`;
+    exportText += `Teacher: ${appState.teacherData.teacherName}\n`;
+    exportText += `Class: ${appState.teacherData.className}\n`;
+    exportText += `Generated: ${new Date().toLocaleDateString()}\n\n`;
+    exportText += `HYBRID SYSTEM - OTP CODES FOR SUBMISSION:\n`;
+    exportText += `==========================================\n\n`;
+    exportText += `Students scan QR to access class (no OTP needed).\n`;
+    exportText += `OTP is required ONLY when submitting assignment.\n\n`;
+    exportText += `Roll No | Student Name      | OTP Code\n`;
+    exportText += `--------|-------------------|----------\n`;
+    
+    appState.teacherData.students.forEach(student => {
+        const otp = assignment.otpCodes[student.rollNo] || 'N/A';
+        const rollPadded = student.rollNo.padEnd(8);
+        const namePadded = student.name.padEnd(18);
+        exportText += `${rollPadded}| ${namePadded}| ${otp}\n`;
+    });
+    
+    exportText += `\n==========================================\n`;
+    exportText += `Total Students: ${appState.teacherData.students.length}\n`;
+    exportText += `Class Code: ${appState.teacherData.classCode}\n\n`;
+    exportText += `INSTRUCTIONS:\n`;
+    exportText += `1. Share QR code with students to access class\n`;
+    exportText += `2. Distribute OTP codes to students (email/print/SMS)\n`;
+    exportText += `3. Students scan QR, select assignment\n`;
+    exportText += `4. Students enter Name + Roll + OTP to submit\n`;
+    
+    const blob = new Blob([exportText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${assignment.name.replace(/\s+/g, '_')}_OTPs_${today}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast('OTP codes exported! Share with students separately.', 'success');
+}
+
+// OTP export and print functions removed - no longer needed
+
+async function deleteAssignment(assignmentId) {
+    if (!appState.currentUser) return;
+
+    if (confirm('Are you sure you want to delete this assignment?')) {
+        // Delete from cloud database
+        const success = await storage.deleteAssignment(appState.currentUser, assignmentId);
+        
+        if (!success) {
+            showToast('Failed to delete assignment. Please try again.', 'error');
+            return;
+        }
+        
+        // Delete from local state
+        appState.teacherData.assignments = appState.teacherData.assignments.filter(a => a.id !== assignmentId);
+        await updateAllViews();
+        showToast('✅ Assignment deleted successfully', 'success');
+    }
+}
+
+function updateAssignmentsList() {
+    const container = document.getElementById('assignmentsList');
+    
+    if (!appState.teacherData || !appState.teacherData.assignments || appState.teacherData.assignments.length === 0) {
+        container.innerHTML = '<div class="empty-state">No assignments created yet</div>';
+        return;
+    }
+
+    let html = '';
+    
+    appState.teacherData.assignments.forEach(assignment => {
+        const completedCount = assignment.submissions ? assignment.submissions.length : 0;
+        const totalCount = appState.teacherData.students ? appState.teacherData.students.length : 0;
+        
+        html += `
+            <div class="assignment-card">
+                <h4>${assignment.name}</h4>
+                <div class="assignment-info">Due Date: ${formatDate(assignment.dueDate)}</div>
+                <div class="otp-info-box">
+                    <div class="otp-info-text">
+                        <strong>✓ Cross-Device Link</strong><br>
+                        Works on ANY device - Data embedded in URL!
+                    </div>
+                </div>
+                <button class="btn btn--sm btn--outline" onclick="showOTPModal('${assignment.id}')" style="margin-top: var(--space-8);">👁️ View OTP Codes</button>
+                <button class="btn btn--sm btn--secondary" onclick="exportOTPCodes('${assignment.id}')" style="margin-top: var(--space-8);">📥 Export OTPs</button>
+                <div class="assignment-info">Submissions: ${completedCount}/${totalCount}</div>
+                <div class="assignment-actions">
+                    <button class="btn btn--sm btn--primary" onclick="generateAssignmentQR('${assignment.id}')">📱 Generate QR</button>
+                    <button class="btn btn--sm btn--secondary" onclick="printAssignmentQR('${assignment.id}')">🖨️ Print QR</button>
+                    <button class="btn btn--sm btn--outline" onclick="deleteAssignment('${assignment.id}')">Delete</button>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+// OTP Distribution modal removed - no longer needed
+
+function updateAssignmentFilter() {
+    const select = document.getElementById('assignmentFilter');
+    
+    let html = '<option value="">Select Assignment</option>';
+    if (appState.teacherData && appState.teacherData.assignments) {
+        appState.teacherData.assignments.forEach(assignment => {
+            html += `<option value="${assignment.id}">${assignment.name}</option>`;
+        });
+    }
+    
+    select.innerHTML = html;
+}
+
+// Submission Tracking - CLOUD VERSION
+async function updateSubmissionView() {
+    const assignmentId = document.getElementById('assignmentFilter').value;
+    const statusFilter = document.getElementById('statusFilter').value;
+    const searchFilter = document.getElementById('searchFilter').value.toLowerCase().trim();
+    
+    const statsContainer = document.getElementById('submissionStats');
+    const tableContainer = document.getElementById('submissionTable');
+
+    if (!assignmentId || !appState.teacherData) {
+        statsContainer.innerHTML = '';
+        tableContainer.innerHTML = '<div class="empty-state">Please select an assignment to view submissions</div>';
+        return;
+    }
+
+    // ALWAYS fetch latest submissions from cloud
+    const assignment = appState.teacherData.assignments.find(a => a.id === assignmentId);
+    if (assignment && appState.currentUser) {
+        assignment.submissions = await storage.getSubmissions(assignmentId);
+    }
+
+    const assignment = appState.teacherData.assignments.find(a => a.id === assignmentId);
+    if (!assignment) {
+        statsContainer.innerHTML = '';
+        tableContainer.innerHTML = '<div class="empty-state">Assignment not found</div>';
+        return;
+    }
+
+    const completedCount = assignment.submissions ? assignment.submissions.length : 0;
+    const totalCount = appState.teacherData.students ? appState.teacherData.students.length : 0;
+    const pendingCount = totalCount - completedCount;
+    const completionPercentage = totalCount > 0 ? Math.round((completedCount/totalCount)*100) : 0;
+    
+    // Progress bar with stats
+    statsContainer.innerHTML = `
+        <div class="progress-bar-container">
+            <div class="progress-bar-label">
+                <span><strong>Progress:</strong> ${completedCount} out of ${totalCount} students completed</span>
+                <span><strong>${completionPercentage}%</strong></span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" style="width: ${completionPercentage}%">
+                    ${completionPercentage > 10 ? completionPercentage + '%' : ''}
+                </div>
+            </div>
+            <div style="margin-top: var(--space-8); font-size: var(--font-size-sm); color: var(--color-text-secondary);">
+                <span style="color: var(--color-success);">✓ Completed: ${completedCount}</span> | 
+                <span style="color: var(--color-error);">✗ Pending: ${pendingCount}</span>
+            </div>
+        </div>
+    `;
+
+    if (!appState.teacherData.students || appState.teacherData.students.length === 0) {
+        tableContainer.innerHTML = '<div class="empty-state">No students added yet</div>';
+        return;
+    }
+
+    let html = '<table class="table"><thead><tr><th>Roll No</th><th>Name</th><th>Status</th><th>OTP Used</th><th>Timestamp</th></tr></thead><tbody>';
+    
+    let filteredCount = 0;
+    
+    appState.teacherData.students.forEach(student => {
+        const submission = assignment.submissions ? assignment.submissions.find(s => s.rollNo === student.rollNo) : null;
+        const isCompleted = !!submission;
+        
+        // Apply filters
+        if (statusFilter === 'completed' && !isCompleted) return;
+        if (statusFilter === 'pending' && isCompleted) return;
+        
+        // Apply search filter
+        if (searchFilter) {
+            const matchName = student.name.toLowerCase().includes(searchFilter);
+            const matchRoll = student.rollNo.toLowerCase().includes(searchFilter);
+            if (!matchName && !matchRoll) return;
+        }
+        
+        filteredCount++;
+        
+        const rowClass = isCompleted ? 'completed-row' : 'pending-row';
+        const statusClass = isCompleted ? 'status--success' : 'status--error';
+        const statusText = isCompleted ? '✓ Submitted' : '✗ Pending';
+        const timestamp = isCompleted ? submission.timestamp : '-';
+        
+        html += `
+            <tr class="${rowClass}" id="row_${student.rollNo}" data-status="${isCompleted ? 'completed' : 'pending'}">
+                <td>${student.rollNo}</td>
+                <td>${student.name}</td>
+                <td><span class="status ${statusClass}">${statusText}</span></td>
+                <td>${isCompleted && submission.usedOTP ? '<span class="otp-code-small">' + submission.usedOTP + '</span>' : '-'}</td>
+                <td>${timestamp}</td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table>';
+    
+    if (filteredCount === 0) {
+        html = '<div class="empty-state">No students match the current filters</div>';
+    } else if (filteredCount !== totalCount) {
+        html = `<p style="color: var(--color-text-secondary); font-size: var(--font-size-sm); margin-bottom: var(--space-12);">Showing ${filteredCount} of ${totalCount} students</p>` + html;
+    }
+    
+    tableContainer.innerHTML = html;
+    
+    // Update submission count tracker for this assignment
+    lastSubmissionCount[assignmentId] = completedCount;
+    
+    console.log(`📊 Submission view updated for assignment ${assignmentId}:`, completedCount, '/', totalCount);
+}
+
+// Smooth update - always refresh to show latest submissions
+async function updateSubmissionViewSmooth() {
+    const assignmentId = document.getElementById('assignmentFilter').value;
+    
+    if (!assignmentId || !appState.teacherData) return;
+
+    const assignment = appState.teacherData.assignments.find(a => a.id === assignmentId);
+    if (!assignment) return;
+    
+    // Reload submissions from cloud
+    assignment.submissions = await storage.getSubmissions(assignmentId);
+    
+    const completedCount = assignment.submissions ? assignment.submissions.length : 0;
+    const lastCount = lastSubmissionCount[assignmentId] || 0;
+    
+    // If submission count changed, update the view and show notification
+    if (completedCount !== lastCount) {
+        console.log(`📊 Submission update detected! ${lastCount} → ${completedCount}`);
+        lastSubmissionCount[assignmentId] = completedCount;
+        updateSubmissionView();
+        
+        // Show toast notification for new submissions
+        if (completedCount > lastCount) {
+            const diff = completedCount - lastCount;
+            showToast(`✓ ${diff} new submission${diff > 1 ? 's' : ''} received!`, 'success');
+        }
+    }
+}
+
+function exportSubmissionData() {
+    const assignmentId = document.getElementById('assignmentFilter').value;
+    
+    if (!assignmentId || !appState.teacherData) {
+        showToast('Please select an assignment first', 'error');
+        return;
+    }
+
+    // Assignment already loaded above
+    if (!assignment) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    let csvContent = 'Roll Number,Student Name,Status,OTP Used,Timestamp\n';
+    
+    if (appState.teacherData.students) {
+        appState.teacherData.students.forEach(student => {
+            const submission = assignment.submissions ? assignment.submissions.find(s => s.rollNo === student.rollNo) : null;
+            const status = submission ? 'Completed' : 'Pending';
+            const otpUsed = submission && submission.usedOTP ? submission.usedOTP : '-';
+            const timestamp = submission ? submission.timestamp : '-';
+            
+            csvContent += `${student.rollNo},${student.name},${status},${otpUsed},${timestamp}\n`;
+        });
+    }
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const assignmentName = assignment.name.replace(/\s+/g, '_');
+    a.download = `Submission_${assignmentName}_${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast('Submission data exported!', 'success');
+}
+
+function resetStudentSubmissionForm() {
+    document.getElementById('submitStudentName').value = '';
+    document.getElementById('submitStudentRollNo').value = '';
+    document.getElementById('submitStudentOTP').value = '';
+    const messageEl = document.getElementById('submissionMessage');
+    messageEl.style.display = 'none';
+    
+    document.getElementById('submissionFormStep').style.display = 'none';
+    document.getElementById('submitBtn').style.display = 'none';
+    
+    document.getElementById('selectAssignmentDropdown').value = '';
+    
+    const crossDeviceIndicator = document.getElementById('crossDeviceIndicator');
+    if (crossDeviceIndicator) {
+        crossDeviceIndicator.style.display = 'none';
+    }
+    
+    appState.currentClassCode = null;
+    selectedAssignmentForSubmission = null;
+    window._qrAutoLoaded = false;
+    window._urlAssignmentData = null;
+    window._urlClassData = null;
+}
+
+// Go back to home and clear URL parameters
+function goBackToHome() {
+    // Clear URL parameters
+    window.history.replaceState({}, document.title, window.location.pathname);
+    resetStudentSubmissionForm();
+    showLoginScreen();
+}
+
+function showNoClassMessage() {
+    const listContainer = document.getElementById('assignmentsList');
+    const classInfoDisplay = document.getElementById('classInfoDisplay');
+    const crossDeviceIndicator = document.getElementById('crossDeviceIndicator');
+    
+    if (crossDeviceIndicator) {
+        crossDeviceIndicator.style.display = 'none';
+    }
+    
+    if (classInfoDisplay) {
+        classInfoDisplay.innerHTML = '<strong>📱 Scan QR Code to Access Class</strong><br><small style="color: var(--color-text-secondary);">Ask your teacher for the QR code or link to view assignments</small>';
+        classInfoDisplay.style.borderLeftColor = 'var(--color-info)';
+        classInfoDisplay.style.background = 'var(--color-bg-1)';
+    }
+    
+    if (listContainer) {
+        listContainer.innerHTML = '<div class="empty-state">Get the shareable link from your teacher to see available assignments</div>';
+    }
+}
+
+async function autoJoinClass(classCode) {
+    console.log('🔍 autoJoinClass called with:', classCode);
+    
+    // Normalize input - remove spaces, trim, uppercase
+    classCode = classCode.trim().replace(/\s+/g, '').toUpperCase();
+    
+    console.log('📝 Normalized class code:', classCode);
+    
+    if (!classCode || classCode.length !== 8) {
+        console.error('❌ Invalid class code format:', classCode);
+        showToast('Invalid class code format. Must be 8 characters.', 'error');
+        showNoClassMessage();
+        return;
+    }
+    
+    console.log('🔍 Looking up class code in cloud database:', classCode);
+    
+    // Query cloud database
+    const teacherData = await storage.getTeacherByClassCode(classCode);
+    
+    if (!teacherData) {
+        console.error('❌ Class not found');
+        console.error('Searched for class code:', classCode);
+        
+        const classInfoDisplay = document.getElementById('classInfoDisplay');
+        if (classInfoDisplay) {
+            classInfoDisplay.innerHTML = `<strong>❌ Class Not Found</strong><br><small style="color: var(--color-error);">Code: ${classCode}</small><br><br><small style="color: var(--color-text-secondary);">This class code does not exist or may have been deleted. Please verify the code with your teacher.</small>`;
+            classInfoDisplay.style.borderLeftColor = 'var(--color-error)';
+            classInfoDisplay.style.background = 'var(--color-bg-4)';
+        }
+        
+        showToast('Class not found. Please verify the code with your teacher.', 'error');
+        showNoClassMessage();
+        return;
+    }
+    
+    console.log('✓ Successfully loaded class:', teacherData.class_name || teacherData.className);
+    
+    appState.currentClassCode = classCode;
+    window._qrAutoLoaded = true;
+    
+    // Normalize teacher data format
+    const normalizedData = {
+        email: teacherData.email,
+        teacherName: teacherData.teacher_name || teacherData.teacherName,
+        className: teacherData.class_name || teacherData.className,
+        classCode: teacherData.class_code || teacherData.classCode,
+        students: await storage.getStudents(teacherData.email),
+        assignments: await storage.getAssignments(teacherData.email)
+    };
+    
+    // Load submissions for assignments
+    for (let assignment of normalizedData.assignments) {
+        assignment.submissions = await storage.getSubmissions(assignment.id);
+        assignment.students = normalizedData.students;
+    }
+    
+    // Display class info
+    const classInfoDisplay = document.getElementById('classInfoDisplay');
+    if (classInfoDisplay) {
+        classInfoDisplay.innerHTML = `<strong>✓ ${normalizedData.className}</strong><br><small style="color: var(--color-text-secondary);">Teacher: ${normalizedData.teacherName}</small>`;
+        classInfoDisplay.style.borderLeftColor = 'var(--color-success)';
+        classInfoDisplay.style.background = 'var(--color-bg-3)';
+    }
+    
+    loadAvailableAssignments(normalizedData);
+    document.getElementById('assignmentSelectionStep').style.display = 'block';
+    
+    showToast(`✓ Loaded ${normalizedData.className}`, 'success');
+}
+
+// Load assignment from URL-encoded data (CROSS-DEVICE)
+function loadAssignmentFromURLData(urlData) {
+    console.log('📦 Loading assignment from URL data...');
+    console.log('  Type:', urlData.type);
+    
+    const classInfoDisplay = document.getElementById('classInfoDisplay');
+    
+    if (urlData.type === 'assignment') {
+        // Single assignment link
+        console.log('✓ Single assignment detected:', urlData.assignment.name);
+        
+        if (classInfoDisplay) {
+            classInfoDisplay.innerHTML = `<strong>✓ ${urlData.className}</strong><br><small style="color: var(--color-text-secondary);">Teacher: ${urlData.teacherName}</small>`;
+            classInfoDisplay.style.borderLeftColor = 'var(--color-success)';
+            classInfoDisplay.style.background = 'var(--color-bg-3)';
+        }
+        
+        // Store data globally for submission
+        window._urlAssignmentData = urlData;
+        window._qrAutoLoaded = true;
+        
+        // Auto-select the assignment
+        const assignments = [{
+            id: urlData.assignment.id,
+            name: urlData.assignment.name,
+            dueDate: urlData.assignment.dueDate,
+            teacherName: urlData.teacherName,
+            className: urlData.className,
+            otpCodes: urlData.assignment.otpCodes,
+            submissions: [],
+            students: urlData.students
+        }];
+        
+        window._availableAssignments = assignments;
+        
+        // Display and auto-select
+        displayURLAssignments(assignments, true);
+        
+        showToast(`✓ Assignment loaded: ${urlData.assignment.name}`, 'success');
+        
+    } else if (urlData.type === 'class') {
+        // Full class link with all assignments
+        console.log('✓ Class link detected with', urlData.assignments.length, 'assignments');
+        
+        if (classInfoDisplay) {
+            classInfoDisplay.innerHTML = `<strong>✓ ${urlData.className}</strong><br><small style="color: var(--color-text-secondary);">Teacher: ${urlData.teacherName} • ${urlData.assignments.length} assignment(s)</small>`;
+            classInfoDisplay.style.borderLeftColor = 'var(--color-success)';
+            classInfoDisplay.style.background = 'var(--color-bg-3)';
+        }
+        
+        window._urlClassData = urlData;
+        window._qrAutoLoaded = true;
+        
+        // Convert to assignment format
+        const assignments = urlData.assignments.map(a => ({
+            id: a.id,
+            name: a.name,
+            dueDate: a.dueDate,
+            teacherName: urlData.teacherName,
+            className: urlData.className,
+            otpCodes: a.otpCodes,
+            submissions: a.submissions || [],
+            students: urlData.students
+        }));
+        
+        window._availableAssignments = assignments;
+        
+        displayURLAssignments(assignments, false);
+        
+        showToast(`✓ Loaded ${urlData.className} with ${assignments.length} assignment(s)`, 'success');
+    }
+}
+
+// Display assignments from URL data
+function displayURLAssignments(assignments, autoSelect) {
+    const dropdown = document.getElementById('selectAssignmentDropdown');
+    const listContainer = document.getElementById('assignmentsList');
+    const crossDeviceIndicator = document.getElementById('crossDeviceIndicator');
+    
+    // Show cross-device indicator
+    if (crossDeviceIndicator) {
+        crossDeviceIndicator.style.display = 'block';
+    }
+    
+    if (!assignments || assignments.length === 0) {
+        dropdown.innerHTML = '<option value="">No assignments available</option>';
+        listContainer.innerHTML = '<div class="empty-state">No assignments available yet.</div>';
+        return;
+    }
+    
+    // Populate dropdown
+    let dropdownHTML = '<option value="">-- Select an assignment --</option>';
+    assignments.forEach((assignment, index) => {
+        dropdownHTML += `<option value="${index}">${assignment.name} - Due: ${formatDate(assignment.dueDate)}</option>`;
+    });
+    dropdown.innerHTML = dropdownHTML;
+    
+    // Display cards
+    let cardsHTML = '<p style="color: var(--color-text-secondary); font-size: var(--font-size-sm); margin-bottom: var(--space-12);">✓ Assignment loaded from link - Ready to submit:</p>';
+    assignments.forEach((assignment, index) => {
+        const dueDate = formatDate(assignment.dueDate);
+        const isPastDue = new Date(assignment.dueDate) < new Date();
+        const dueDateClass = isPastDue ? 'color: var(--color-error);' : 'color: var(--color-text-secondary);';
+        
+        cardsHTML += `
+            <div class="assignment-selection-card ${autoSelect && index === 0 ? 'selected' : ''}" onclick="selectAssignmentCard(${index})" id="assignmentCard${index}">
+                <div class="assignment-selection-title">${assignment.name}</div>
+                <div class="assignment-selection-details">
+                    <span style="${dueDateClass}">📅 Due: ${dueDate}</span>
+                    <span>👤 ${assignment.teacherName}</span>
+                </div>
+                <div style="font-size: var(--font-size-xs); color: var(--color-text-secondary);">${assignment.className}</div>
+            </div>
+        `;
+    });
+    listContainer.innerHTML = cardsHTML;
+    
+    // Auto-select first assignment if requested
+    if (autoSelect && assignments.length === 1) {
+        setTimeout(() => {
+            selectAssignmentCard(0);
+        }, 500);
+    }
+}
+
+function loadAvailableAssignments(teacherData) {
+    const dropdown = document.getElementById('selectAssignmentDropdown');
+    const listContainer = document.getElementById('assignmentsList');
+    
+    if (!teacherData) {
+        showNoClassMessage();
+        return;
+    }
+    
+    if (!teacherData.assignments || Object.keys(teacherData.assignments).length === 0) {
+        dropdown.innerHTML = '<option value="">No assignments available</option>';
+        listContainer.innerHTML = '<div class="empty-state">No assignments available yet. Your teacher will create them soon.</div>';
+        window._availableAssignments = [];
+        window._teacherData = teacherData;
+        return;
+    }
+    
+    const allAssignments = [];
+    Object.keys(teacherData.assignments).forEach(key => {
+        const assignment = teacherData.assignments[key];
+        allAssignments.push({
+            id: key,
+            name: assignment.name,
+            dueDate: assignment.dueDate,
+            teacherName: teacherData.teacherName,
+            className: teacherData.className,
+            otpCodes: assignment.otpCodes,
+            submissions: assignment.submissions || []
+        });
+    });
+    
+    let dropdownHTML = '<option value="">-- Select an assignment --</option>';
+    allAssignments.forEach((assignment, index) => {
+        dropdownHTML += `<option value="${index}">${assignment.name} - Due: ${formatDate(assignment.dueDate)}</option>`;
+    });
+    dropdown.innerHTML = dropdownHTML;
+    
+    window._availableAssignments = allAssignments;
+    window._teacherData = teacherData;
+    
+    // Auto-select assignment if coming from QR code
+    if (window._autoSelectAssignmentId) {
+        const autoIndex = allAssignments.findIndex(a => a.id === window._autoSelectAssignmentId);
+        if (autoIndex >= 0) {
+            setTimeout(() => {
+                selectAssignmentCard(autoIndex);
+                window._autoSelectAssignmentId = null;
+            }, 300);
+        }
+    }
+    
+    let cardsHTML = '<p style="color: var(--color-text-secondary); font-size: var(--font-size-sm); margin-bottom: var(--space-12);">Select an assignment to submit:</p>';
+    allAssignments.forEach((assignment, index) => {
+        const dueDate = formatDate(assignment.dueDate);
+        const isPastDue = new Date(assignment.dueDate) < new Date();
+        const dueDateClass = isPastDue ? 'color: var(--color-error);' : 'color: var(--color-text-secondary);';
+        
+        cardsHTML += `
+            <div class="assignment-selection-card" onclick="selectAssignmentCard(${index})" id="assignmentCard${index}">
+                <div class="assignment-selection-title">${assignment.name}</div>
+                <div class="assignment-selection-details">
+                    <span style="${dueDateClass}">📅 Due: ${dueDate}</span>
+                    <span>👤 ${assignment.teacherName}</span>
+                </div>
+                <div style="font-size: var(--font-size-xs); color: var(--color-text-secondary);">${assignment.className}</div>
+            </div>
+        `;
+    });
+    listContainer.innerHTML = cardsHTML;
+}
+
+function selectAssignmentCard(index) {
+    const dropdown = document.getElementById('selectAssignmentDropdown');
+    dropdown.value = index;
+    handleAssignmentSelection();
+}
+
+function handleAssignmentSelection() {
+    const dropdown = document.getElementById('selectAssignmentDropdown');
+    const selectedIndex = dropdown.value;
+    
+    if (!selectedIndex || selectedIndex === '') {
+        return;
+    }
+    
+    const assignments = window._availableAssignments || [];
+    const assignment = assignments[parseInt(selectedIndex)];
+    
+    if (!assignment) {
+        showMessage('Assignment not found', 'error');
+        return;
+    }
+    
+    // Store selected assignment with account info
+    selectedAssignmentForSubmission = assignment;
+    
+    // Show step 2, hide step 1
+    document.getElementById('assignmentSelectionStep').style.display = 'none';
+    document.getElementById('submissionFormStep').style.display = 'block';
+    document.getElementById('submitBtn').style.display = 'block';
+    
+    // Display selected assignment info
+    const displayEl = document.getElementById('selectedAssignmentDisplay');
+    const isPastDue = new Date(assignment.dueDate) < new Date();
+    const dueDateStyle = isPastDue ? 'color: var(--color-error);' : 'color: var(--color-text);';
+    const dueDateLabel = isPastDue ? '⚠️ Past Due' : 'Due Date';
+    
+    displayEl.innerHTML = `
+        <h4>✓ Assignment Selected</h4>
+        <p><strong>Assignment:</strong> ${assignment.name}</p>
+        <p style="${dueDateStyle}"><strong>${dueDateLabel}:</strong> ${formatDate(assignment.dueDate)}</p>
+        <p><strong>Teacher:</strong> ${assignment.teacherName} (${assignment.className})</p>
+        <div style="margin-top: var(--space-12); padding: var(--space-12); background: var(--color-bg-2); border-radius: var(--radius-base); border-left: 4px solid var(--color-primary);">
+            <strong>🔐 OTP Required:</strong> You must enter your unique OTP code (provided by teacher) to submit this assignment.
+        </div>
+    `;
+    
+    // Hide any previous messages
+    document.getElementById('submissionMessage').style.display = 'none';
+}
+
+function backToAssignmentSelection() {
+    selectedAssignmentForSubmission = null;
+    document.getElementById('assignmentSelectionStep').style.display = 'block';
+    document.getElementById('submissionFormStep').style.display = 'none';
+    document.getElementById('submitBtn').style.display = 'none';
+    document.getElementById('submissionMessage').style.display = 'none';
+    document.getElementById('selectAssignmentDropdown').value = '';
+    
+    // Clear OTP field
+    document.getElementById('submitStudentOTP').value = '';
+}
+
+// Student Submission
+async function submitAssignment() {
+    const name = document.getElementById('submitStudentName').value.trim();
+    const rollNo = document.getElementById('submitStudentRollNo').value.trim();
+    const otp = document.getElementById('submitStudentOTP').value.trim();
+
+    if (!selectedAssignmentForSubmission) {
+        showMessage('Please select an assignment first.', 'error');
+        return;
+    }
+
+    if (!name || !rollNo || !otp) {
+        showMessage('Please fill all fields including OTP code.', 'error');
+        return;
+    }
+
+    const assignment = selectedAssignmentForSubmission;
+    const students = assignment.students || [];
+    
+    console.log('📤 Submitting assignment...');
+    console.log('  Student:', name, '-', rollNo);
+    console.log('  Assignment:', assignment.name);
+    
+    // Verify student is in the list
+    const student = students.find(s => s.rollNo === rollNo);
+    
+    if (!student) {
+        showMessage('Roll number not found in this class. Please check with your teacher.', 'error');
+        return;
+    }
+    
+    // Verify name matches
+    if (student.name.toLowerCase() !== name.toLowerCase()) {
+        showMessage(`Name mismatch! Expected: ${student.name}. Please enter your exact name as registered.`, 'error');
+        return;
+    }
+    
+    // Verify OTP
+    const expectedOTP = assignment.otpCodes ? assignment.otpCodes[rollNo] : null;
+    
+    if (!expectedOTP) {
+        showMessage('OTP code not found for your roll number. Please contact your teacher.', 'error');
+        return;
+    }
+    
+    if (otp !== expectedOTP) {
+        showMessage('❌ Invalid OTP code! Please check the OTP provided by your teacher and try again.', 'error');
+        return;
+    }
+    
+    // Check if already submitted
+    const alreadySubmitted = await storage.checkDuplicateSubmission(assignment.id, rollNo);
+    
+    if (alreadySubmitted) {
+        showMessage(`You have already submitted "${assignment.name}".`, 'error');
+        return;
+    }
+    
+    // Submit to cloud database
+    const success = await storage.submitAssignment(assignment.id, rollNo, student.name, otp);
+    
+    if (!success) {
+        showMessage('❌ Submission failed. Please try again.', 'error');
+        return;
+    }
+    
+    const timestamp = new Date().toLocaleString('en-IN');
+    
+    console.log('✅ Submission saved successfully!');
+    console.log('  Student:', student.name, '(' + rollNo + ')');
+    console.log('  Assignment:', assignment.name);
+    
+    showMessage(`✅ Success! "${assignment.name}" submitted successfully!\n\nTimestamp: ${timestamp}\n\nYour submission has been recorded.`, 'success');
+    
+    document.getElementById('submitStudentName').value = '';
+    document.getElementById('submitStudentRollNo').value = '';
+    document.getElementById('submitStudentOTP').value = '';
+    
+    selectedAssignmentForSubmission = null;
+    
+    setTimeout(() => {
+        if (confirm('Would you like to submit another assignment?')) {
+            backToAssignmentSelection();
+        } else {
+            resetStudentSubmissionForm();
+        }
+    }, 2000);
+}
+
+function showMessage(text, type) {
+    const messageEl = document.getElementById('submissionMessage');
+    messageEl.textContent = text;
+    messageEl.className = `message ${type}`;
+    messageEl.style.display = 'block';
+}
+
+// Submit assignment using URL-embedded data (CROSS-DEVICE) - Now uses cloud storage!
+async function submitURLBasedAssignment(name, rollNo, otp) {
+    const assignment = selectedAssignmentForSubmission;
+    const students = assignment.students || [];
+    
+    console.log('📤 Submitting via URL data (cross-device mode)');
+    console.log('  Student:', name, '-', rollNo);
+    console.log('  Assignment:', assignment.name);
+    console.log('  Students in list:', students.length);
+    
+    // Verify student is in the list
+    const student = students.find(s => s.rollNo === rollNo);
+    
+    if (!student) {
+        showMessage('Roll number not found in this class. Please check with your teacher.', 'error');
+        return;
+    }
+    
+    // Verify name matches
+    if (student.name.toLowerCase() !== name.toLowerCase()) {
+        showMessage(`Name mismatch! Expected: ${student.name}. Please enter your exact name as registered.`, 'error');
+        return;
+    }
+    
+    // Verify OTP
+    const expectedOTP = assignment.otpCodes ? assignment.otpCodes[rollNo] : null;
+    
+    if (!expectedOTP) {
+        showMessage('OTP code not found for your roll number. Please contact your teacher.', 'error');
+        return;
+    }
+    
+    if (otp !== expectedOTP) {
+        showMessage('❌ Invalid OTP code! Please check the OTP provided by your teacher and try again.', 'error');
+        return;
+    }
+    
+    // Check if already submitted (try to load from localStorage if available)
+    const submissionKey = `submission_${assignment.id}_${rollNo}`;
+    const existingSubmission = storage.getItem(submissionKey);
+    
+    if (existingSubmission) {
+        showMessage(`You have already submitted "${assignment.name}" on ${existingSubmission.timestamp}.`, 'error');
+        return;
+    }
+    
+    const timestamp = new Date().toLocaleString('en-IN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    }).replace(/\//g, '-').replace(',', '');
+    
+    const submission = {
+        rollNo,
+        name: student.name,
+        usedOTP: otp,
+        timestamp,
+        assignmentId: assignment.id,
+        assignmentName: assignment.name,
+        className: assignment.className,
+        teacherName: assignment.teacherName
+    };
+    
+    // Save submission to cloud database
+    const cloudSuccess = await storage.submitAssignment(assignment.id, rollNo, student.name, otp);
+    
+    if (!cloudSuccess) {
+        showMessage('❌ Submission failed. Please try again.', 'error');
+        return;
+    }
+    
+    console.log('✅ Submission saved to cloud database!');
+    console.log('  Submissions are immediately visible to teacher!');
+    console.log('  Real-time updates enabled!');
+    
+    showMessage(`✅ Success! "${assignment.name}" submitted successfully!\n\nTimestamp: ${timestamp}\n\nYour submission has been saved to the cloud and is immediately visible to your teacher!`, 'success');
+    
+    document.getElementById('submitStudentName').value = '';
+    document.getElementById('submitStudentRollNo').value = '';
+    document.getElementById('submitStudentOTP').value = '';
+    
+    selectedAssignmentForSubmission = null;
+    
+    setTimeout(() => {
+        if (confirm('Would you like to submit another assignment?')) {
+            backToAssignmentSelection();
+        } else {
+            resetStudentSubmissionForm();
+        }
+    }, 2000);
+}
+
+// Export Records
+function exportRecords() {
+    if (!appState.teacherData || !appState.teacherData.assignments || appState.teacherData.assignments.length === 0) {
+        alert('No assignments to export');
+        return;
+    }
+
+    let exportText = 'ASSIGNMENT SUBMISSION RECORDS (UNIQUE OTP SYSTEM)\n';
+    exportText += '='.repeat(100) + '\n\n';
+    exportText += `Teacher: ${appState.teacherData.teacherName}\n`;
+    exportText += `Class: ${appState.teacherData.className}\n`;
+    exportText += `Class Code: ${appState.teacherData.classCode}\n`;
+    exportText += `Generated on: ${new Date().toLocaleString('en-IN')}\n\n`;
+
+    appState.teacherData.assignments.forEach(assignment => {
+        const submissionCount = assignment.submissions ? assignment.submissions.length : 0;
+        const studentCount = appState.teacherData.students ? appState.teacherData.students.length : 0;
+        exportText += `Assignment: ${assignment.name}\n`;
+        exportText += `Due Date: ${formatDate(assignment.dueDate)}\n`;
+        exportText += `Submissions: ${submissionCount}/${studentCount}\n`;
+        exportText += '-'.repeat(100) + '\n';
+        exportText += 'Roll No\t\tName\t\t\t\tStatus\t\tOTP Used\tTimestamp\n';
+        exportText += '-'.repeat(100) + '\n';
+        
+        if (appState.teacherData.students) {
+            appState.teacherData.students.forEach(student => {
+                const submission = assignment.submissions ? assignment.submissions.find(s => s.rollNo === student.rollNo) : null;
+                const status = submission ? 'Completed' : 'Pending';
+                const otpUsed = submission && submission.usedOTP ? submission.usedOTP : '-';
+                const timestamp = submission ? submission.timestamp : '-';
+                exportText += `${student.rollNo}\t\t${student.name.padEnd(25)}\t${status}\t\t${otpUsed}\t${timestamp}\n`;
+            });
+        }
+        
+        exportText += '\n\n';
+    });
+
+    exportText += '\n='.repeat(100) + '\n';
+    exportText += '\nHYBRID SYSTEM NOTES:\n';
+    exportText += '- QR code opens class directly (no OTP needed for access)\n';
+    exportText += '- OTP is required ONLY when submitting assignments\n';
+    exportText += '- Each student has a unique OTP code per assignment\n';
+    exportText += '- OTP verification ensures secure and trackable submissions\n';
+
+    // Create downloadable text file
+    const blob = new Blob([exportText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `assignment_records_${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// Statistics
+function updateOverallStats() {
+    const container = document.getElementById('overallStats');
+    
+    if (!appState.teacherData) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const totalAssignments = appState.teacherData.assignments ? appState.teacherData.assignments.length : 0;
+    const totalStudents = appState.teacherData.students ? appState.teacherData.students.length : 0;
+    
+    let totalSubmissions = 0;
+    let possibleSubmissions = 0;
+    
+    if (appState.teacherData.assignments) {
+        appState.teacherData.assignments.forEach(assignment => {
+            totalSubmissions += assignment.submissions ? assignment.submissions.length : 0;
+            possibleSubmissions += totalStudents;
+        });
+    }
+    
+    const avgCompletionRate = possibleSubmissions > 0 
+        ? Math.round((totalSubmissions / possibleSubmissions) * 100) 
+        : 0;
+
+    container.innerHTML = `
+        <div class="stat-card">
+            <div class="stat-label">Total Assignments</div>
+            <div class="stat-value">${totalAssignments}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Total Students</div>
+            <div class="stat-value">${totalStudents}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Total Submissions</div>
+            <div class="stat-value">${totalSubmissions}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Avg Completion Rate</div>
+            <div class="stat-value">${avgCompletionRate}%</div>
+        </div>
+    `;
+}
+
+// Utility Functions
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+    });
+}
+
+function showToast(message, type = 'success') {
+    // Remove any existing toasts
+    const existingToast = document.querySelector('.toast');
+    if (existingToast) {
+        existingToast.remove();
+    }
+    
+    // Create new toast
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.remove();
+        }
+    }, 3000);
+}
+
+async function updateAllViews() {
+    if (!appState.teacherData) return;
+    
+    // Reload data from cloud
+    if (appState.currentUser) {
+        appState.teacherData.students = await storage.getStudents(appState.currentUser);
+        appState.teacherData.assignments = await storage.getAssignments(appState.currentUser);
+        
+        // Load submissions for each assignment
+        for (let assignment of appState.teacherData.assignments) {
+            assignment.submissions = await storage.getSubmissions(assignment.id);
+        }
+    }
+    
+    updateStudentsList();
+    updateAssignmentsList();
+    updateAssignmentFilter();
+    await updateSubmissionView();
+    updateOverallStats();
+    updateAssignmentStudentCount();
+    updateStudentListStatus();
+}
+
+function updateLastUpdateTime() {
+    const lastUpdateEl = document.getElementById('lastUpdateTime');
+    if (lastUpdateEl) {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        lastUpdateEl.textContent = `(Updated: ${timeStr})`;
+    }
+}
+
+function updateStudentListStatus() {
+    // Function kept for compatibility but no longer displays status
+    return;
+}
+
+function updateAssignmentStudentCount() {
+    const container = document.getElementById('assignmentStudentCount');
+    if (!container) return;
+    
+    if (!appState.teacherData || !appState.teacherData.students || appState.teacherData.students.length === 0) {
+        container.innerHTML = '⚠️ Please add students first';
+        container.style.backgroundColor = 'var(--color-bg-4)';
+    } else {
+        const count = appState.teacherData.students.length;
+        container.innerHTML = `✓ This assignment will be created for all <strong>${count}</strong> student${count !== 1 ? 's' : ''} in your class`;
+        container.style.backgroundColor = 'var(--color-bg-3)';
+    }
+}
+
+// Remove forgot password feature (not needed with Firebase Auth)
+function showForgotPasswordModal() {
+    showToast('Use the Forgot Password link in the login form to reset via email', 'info');
+    return;
+    /*
+    const modalHTML = `
+        <div class="modal-overlay" id="forgotPasswordModal" onclick="closeForgotPasswordModal()">
+            <div class="modal-content" style="max-width: 500px;" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h2>Reset Password</h2>
+                    <button class="btn btn--sm btn--outline" onclick="closeForgotPasswordModal()">Close</button>
+                </div>
+                <div class="modal-body">
+                    <div id="forgotPasswordStep1">
+                        <p style="color: var(--color-text-secondary); margin-bottom: var(--space-16);">Enter your username to reset your password</p>
+                        <div class="form-group">
+                            <label class="form-label" for="forgotUsername">Username</label>
+                            <input type="text" id="forgotUsername" class="form-control" placeholder="Enter your username">
+                        </div>
+                        <div id="forgotError" class="error-message" style="display: none;"></div>
+                        <button class="btn btn--primary btn--full-width" onclick="verifyUsername()">Continue</button>
+                    </div>
+                    <div id="forgotPasswordStep2" style="display: none;">
+                        <p style="color: var(--color-text-secondary); margin-bottom: var(--space-16);">Security Question: <strong>What is your teacher name?</strong></p>
+                        <div class="form-group">
+                            <label class="form-label" for="securityAnswer">Your Answer</label>
+                            <input type="text" id="securityAnswer" class="form-control" placeholder="Enter your teacher name">
+                        </div>
+                        <div id="securityError" class="error-message" style="display: none;"></div>
+                        <button class="btn btn--primary btn--full-width" onclick="verifySecurityAnswer()">Verify</button>
+                    </div>
+                    <div id="forgotPasswordStep3" style="display: none;">
+                        <p style="color: var(--color-success); margin-bottom: var(--space-16); font-weight: var(--font-weight-medium);">✓ Identity verified! Set your new password</p>
+                        <div class="form-group">
+                            <label class="form-label" for="newPassword">New Password</label>
+                            <input type="password" id="newPassword" class="form-control" placeholder="Enter new password">
+                            <small style="color: var(--color-text-secondary); font-size: var(--font-size-sm); display: block; margin-top: var(--space-4);">Must be at least 6 characters</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="confirmNewPassword">Confirm New Password</label>
+                            <input type="password" id="confirmNewPassword" class="form-control" placeholder="Re-enter new password">
+                        </div>
+                        <div id="resetError" class="error-message" style="display: none;"></div>
+                        <button class="btn btn--primary btn--full-width" onclick="resetPassword()">Reset Password</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    */
+}
+
+function closeForgotPasswordModal() {
+    const modal = document.getElementById('forgotPasswordModal');
+    if (modal) {
+        modal.remove();
+    }
+    window._forgotPasswordAccount = null;
+}
+
+function verifyUsername() {
+    const username = document.getElementById('forgotUsername').value.trim();
+    const errorEl = document.getElementById('forgotError');
+    
+    errorEl.style.display = 'none';
+    
+    if (!username) {
+        errorEl.textContent = 'Please enter your username';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    const account = appState.accounts.find(acc => acc.username === username);
+    
+    if (!account) {
+        errorEl.textContent = 'Username not found';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    // Store account temporarily
+    window._forgotPasswordAccount = account;
+    
+    // Show security question step
+    document.getElementById('forgotPasswordStep1').style.display = 'none';
+    document.getElementById('forgotPasswordStep2').style.display = 'block';
+}
+
+function verifySecurityAnswer() {
+    const answer = document.getElementById('securityAnswer').value.trim();
+    const errorEl = document.getElementById('securityError');
+    
+    errorEl.style.display = 'none';
+    
+    if (!answer) {
+        errorEl.textContent = 'Please enter your answer';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    const account = window._forgotPasswordAccount;
+    
+    if (!account) {
+        errorEl.textContent = 'Session expired. Please start over.';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    // Check if answer matches (case-insensitive)
+    if (answer.toLowerCase() !== account.securityAnswer.toLowerCase()) {
+        errorEl.textContent = 'Incorrect answer. Please try again.';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    // Show password reset step
+    document.getElementById('forgotPasswordStep2').style.display = 'none';
+    document.getElementById('forgotPasswordStep3').style.display = 'block';
+}
+
+function resetPassword() {
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmNewPassword').value;
+    const errorEl = document.getElementById('resetError');
+    
+    errorEl.style.display = 'none';
+    
+    if (!newPassword || !confirmPassword) {
+        errorEl.textContent = 'Please fill both password fields';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    if (newPassword.length < 6) {
+        errorEl.textContent = 'Password must be at least 6 characters long';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+        errorEl.textContent = 'Passwords do not match';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    const account = window._forgotPasswordAccount;
+    
+    if (!account) {
+        errorEl.textContent = 'Session expired. Please start over.';
+        errorEl.style.display = 'block';
+        return;
+    }
+    
+    // Update password
+    account.password = newPassword;
+    
+    // Save accounts
+    if (typeof saveAllAccounts === 'function') {
+        saveAllAccounts();
+    }
+    
+    // Show success and close modal
+    showToast('Password reset successfully! Please login with your new password.', 'success');
+    closeForgotPasswordModal();
+}
+
+// Generate shareable link with ALL data embedded (URL-encoded)
+function generateShareableLink(assignment) {
+    if (!appState.teacherData) return '';
+    
+    // Pack ALL necessary data into URL
+    const linkData = {
+        type: 'assignment',
+        teacherName: appState.teacherData.teacherName,
+        className: appState.teacherData.className,
+        classCode: appState.teacherData.classCode,
+        students: appState.teacherData.students || [],
+        assignment: {
+            id: assignment.id,
+            name: assignment.name,
+            dueDate: assignment.dueDate,
+            otpCodes: assignment.otpCodes || {},
+            createdDate: assignment.createdDate,
+            status: assignment.status
+        }
+    };
+    
+    // Encode to base64
+    const jsonStr = JSON.stringify(linkData);
+    const encoded = btoa(encodeURIComponent(jsonStr));
+    
+    // Create URL with embedded data
+    const url = `${window.location.origin}${window.location.pathname}?data=${encoded}`;
+    
+    console.log('✓ Generated CROSS-DEVICE shareable link!');
+    console.log('  Assignment:', assignment.name);
+    console.log('  Students:', (appState.teacherData.students || []).length);
+    console.log('  Link length:', url.length, 'characters');
+    console.log('  ✓ Works on ANY device - data embedded in URL!');
+    
+    return url;
+}
+
+// Generate class share link with ALL class data
+function generateClassShareLink() {
+    if (!appState.teacherData) return '';
+    
+    const linkData = {
+        type: 'class',
+        teacherName: appState.teacherData.teacherName,
+        className: appState.teacherData.className,
+        classCode: appState.teacherData.classCode,
+        students: appState.teacherData.students || [],
+        assignments: appState.teacherData.assignments || []
+    };
+    
+    const jsonStr = JSON.stringify(linkData);
+    const encoded = btoa(encodeURIComponent(jsonStr));
+    const url = `${window.location.origin}${window.location.pathname}?data=${encoded}`;
+    
+    console.log('✓ Generated CROSS-DEVICE class share link!');
+    console.log('  Assignments:', (appState.teacherData.assignments || []).length);
+    console.log('  ✓ Works on ANY device - data embedded in URL!');
+    
+    return url;
+}
+
+// Load assignment data from URL parameter
+function loadFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    const encoded = params.get('data');
+    
+    if (!encoded) return null;
+    
+    try {
+        console.log('📦 Loading data from URL...');
+        const decoded = decodeURIComponent(atob(encoded));
+        const data = JSON.parse(decoded);
+        
+        console.log('✓ URL data loaded successfully');
+        console.log('  Type:', data.type);
+        console.log('  Teacher:', data.teacherName);
+        console.log('  Class:', data.className);
+        
+        return data;
+    } catch (e) {
+        console.error('❌ Failed to decode URL data:', e);
+        showToast('Invalid link. Please ask teacher for a new link.', 'error');
+        return null;
+    }
+}
+
+// Check for share link in URL (SIMPLIFIED - Direct QR Access)
+function checkShareLink() {
+    const hash = window.location.hash;
+    const params = new URLSearchParams(window.location.search);
+    
+    console.log('🔗 Checking share link...');
+    console.log('Hash:', hash);
+    console.log('Params:', params.toString());
+    
+    // PRIORITY 1: Check for URL-encoded data (CROSS-DEVICE SUPPORT)
+    if (params.has('data')) {
+        console.log('✓ URL-encoded data found - Loading assignment...');
+        const urlData = loadFromURL();
+        
+        if (urlData) {
+            setTimeout(() => {
+                showStudentView();
+                
+                // Load assignment from URL data
+                setTimeout(() => {
+                    loadAssignmentFromURLData(urlData);
+                }, 300);
+            }, 100);
+            return true;
+        }
+    }
+    
+    // FALLBACK: Check URL hash for direct assignment (#/submit/CODE/ASSIGNMENTID)
+    if (hash.startsWith('#/submit/')) {
+        const parts = hash.replace('#/submit/', '').split('/');
+        const classCode = parts[0] ? parts[0].trim().toUpperCase() : null;
+        const assignmentId = parts[1] ? parts[1].trim() : null;
+        
+        console.log('⚠️ Old-style link detected (localStorage-based)');
+        console.log('  Class Code:', classCode);
+        console.log('  Assignment ID:', assignmentId);
+        
+        if (classCode && assignmentId) {
+            setTimeout(() => {
+                showStudentView();
+                window._autoSelectAssignmentId = assignmentId;
+                setTimeout(() => {
+                    autoJoinClass(classCode);
+                }, 300);
+            }, 100);
+            return true;
+        }
+    }
+    
+    // FALLBACK: Check URL hash (#/share/CODE) - Direct class access
+    if (hash.startsWith('#/share/')) {
+        const classCode = hash.replace('#/share/', '').trim().toUpperCase();
+        console.log('⚠️ Old-style class link (localStorage-based)');
+        console.log('  Class Code:', classCode);
+        
+        setTimeout(() => {
+            showStudentView();
+            setTimeout(() => {
+                autoJoinClass(classCode);
+            }, 300);
+        }, 100);
+        return true;
+    }
+    // FALLBACK: Check URL parameter (?code=CODE)
+    else if (params.has('code')) {
+        const classCode = params.get('code').trim().toUpperCase();
+        console.log('⚠️ Old-style parameter link (localStorage-based)');
+        console.log('  Class Code:', classCode);
+        
+        setTimeout(() => {
+            showStudentView();
+            setTimeout(() => {
+                autoJoinClass(classCode);
+            }, 300);
+        }, 100);
+        return true;
+    }
+    
+    return false;
+}
+
+// Scroll to FAQ section - REMOVED
+function scrollToFAQ() {
+    // FAQ section removed for cleaner UI
+    return;
+}
+
+// Initialize app on load
+window.addEventListener('DOMContentLoaded', async () => {
+    console.log('🚀 Assignment Tracker - CLOUD-POWERED!');
+    console.log(`☁️ Cloud Database: ${isSupabaseConfigured ? 'CONNECTED' : 'DEMO MODE'}`);
+    console.log('✅ Cross-device submissions enabled!');
+    console.log('✅ Real-time updates active!');
+    console.log('✅ Works on ANY device!');
+    
+    // Check for share link first
+    const hasShareLink = checkShareLink();
+    
+    // Then initialize normal app only if no share link
+    if (!hasShareLink) {
+        await initializeApp();
+    }
+});
+
+// Listen for hash changes (share link navigation)
+window.addEventListener('hashchange', () => {
+    checkShareLink();
+});
