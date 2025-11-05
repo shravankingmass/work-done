@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<!-- saved from url=(0152)https://ppl-ai-code-interpreter-files.s3.amazonaws.com/web/direct-files/cec2c31ce781550674922f0f7a7d17fe/45193970-4480-43c2-8a04-a12f0c15abf5/index.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assignment Tracker - Teacher &amp; Student Portal</title>
+    <link rel="stylesheet" href="./index_files/style.css">
+    <!-- QR Code Library for Share Links -->
+    <script src="./index_files/qrcode.min.js.download"></script>
+    <!-- Supabase SDK for Cloud Database -->
+    <script src="./index_files/supabase-js@2"></script>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="screen active">
+        <div class="login-container">
+            <div class="card">
+                <div class="card__body">
+                    <h1>Assignment Tracker</h1>
+                    <p class="subtitle">Secure Assignment Management System</p>
+
+
+                    <div class="login-options">
+                        <button class="btn btn--primary btn--lg" onclick="showTeacherLogin(); return false;" fdprocessedid="c85us9">Teacher Login</button>
+                        <button class="btn btn--secondary btn--lg" onclick="showStudentView(); return false;" fdprocessedid="88ef0n">Student Submission</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Teacher Login/Registration Screen -->
+    <div id="teacherLoginScreen" class="screen">
+        <div class="login-container">
+            <div class="card">
+                <div class="card__body">
+                    <!-- Tab Switcher -->
+                    <div class="tab-switcher">
+                        <button class="tab-btn active" id="loginTab" onclick="switchAuthTab(&#39;login&#39;)">Login</button>
+                        <button class="tab-btn" id="registerTab" onclick="switchAuthTab(&#39;register&#39;)">Create New Account</button>
+                    </div>
+
+                    <!-- Login Form -->
+                    <div id="loginForm" class="auth-form active">
+                        <h2>Teacher Login</h2>
+                        <p class="subtitle">Login to access your class dashboard</p>
+                        <div class="form-group">
+                            <label class="form-label" for="loginUsername">Email Address</label>
+                            <input type="email" id="loginUsername" class="form-control" placeholder="Enter your email">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="loginPassword">Password</label>
+                            <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password">
+                        </div>
+                        <div id="loginError" class="error-message" style="display: none;"></div>
+                        <div class="button-group">
+                            <button class="btn btn--primary btn--full-width" onclick="loginTeacher()">Login</button>
+                            <button class="btn btn--outline btn--full-width" onclick="showLoginScreen()">Back</button>
+                        </div>
+                        <div style="text-align: center; margin-top: var(--space-16);">
+                            <a href="https://ppl-ai-code-interpreter-files.s3.amazonaws.com/web/direct-files/cec2c31ce781550674922f0f7a7d17fe/45193970-4480-43c2-8a04-a12f0c15abf5/index.html#" onclick="showForgotPasswordModal(); return false;" style="color: var(--color-primary); text-decoration: none; font-size: var(--font-size-sm);">Forgot Password?</a>
+                        </div>
+                    </div>
+
+                    <!-- Registration Form -->
+                    <div id="registerForm" class="auth-form">
+                        <h2>Create New Account</h2>
+                        <p class="subtitle">Set up your teacher account for your class</p>
+                        <div class="form-group">
+                            <label class="form-label" for="regTeacherName">Teacher Name *</label>
+                            <input type="text" id="regTeacherName" class="form-control" placeholder="e.g., Mr. Sharma">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="regUsername">Email Address *</label>
+                            <input type="email" id="regUsername" class="form-control" placeholder="e.g., teacher@school.com">
+                            <small style="color: var(--color-text-secondary); font-size: var(--font-size-sm); display: block; margin-top: var(--space-4);">Valid email required</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="regPassword">Password *</label>
+                            <input type="password" id="regPassword" class="form-control" placeholder="Enter password">
+                            <small style="color: var(--color-text-secondary); font-size: var(--font-size-sm); display: block; margin-top: var(--space-4);">Must be at least 6 characters</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="regConfirmPassword">Confirm Password *</label>
+                            <input type="password" id="regConfirmPassword" class="form-control" placeholder="Re-enter password">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="regClassName">Class/Subject Name *</label>
+                            <input type="text" id="regClassName" class="form-control" placeholder="e.g., Class 10A, Mathematics">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="regSchoolName">School Name (Optional)</label>
+                            <input type="text" id="regSchoolName" class="form-control" placeholder="e.g., XYZ High School">
+                        </div>
+                        <div id="registerError" class="error-message" style="display: none;"></div>
+                        <div id="registerSuccess" class="success-message" style="display: none;"></div>
+                        <div class="button-group">
+                            <button class="btn btn--primary btn--full-width" onclick="createAccount()">Create Account</button>
+                            <button class="btn btn--outline btn--full-width" onclick="showLoginScreen()">Back</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Teacher Dashboard -->
+    <div id="teacherDashboard" class="screen">
+        <header class="dashboard-header">
+            <div class="header-content">
+                <div class="header-title">
+                    <h1>Assignment Tracker</h1>
+                    <div class="user-info">
+                        <span id="welcomeText" class="welcome-text"></span>
+                        <span id="classNameText" class="class-name-text"></span>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn--secondary" onclick="logout()">Logout</button>
+                </div>
+            </div>
+        </header>
+
+
+
+        <!-- CLOUD STATUS BANNER -->
+        <div id="cloudBanner" style="background: var(--color-bg-3); border-left: 4px solid var(--color-success); padding: var(--space-16) var(--space-24); text-align: center; border-bottom: 1px solid var(--color-card-border);">
+            <div style="max-width: 1400px; margin: 0 auto;">
+                <strong id="cloudBannerTitle" style="color: var(--color-success); font-size: var(--font-size-lg);">☁️ CLOUD DATABASE CONNECTED!</strong>
+                <p id="cloudBannerText" style="color: var(--color-text); font-size: var(--font-size-sm); margin-top: var(--space-8);">Students can submit from ANY device, ANY time! You can close your browser - all submissions are saved to the cloud and updated in real-time.</p>
+            </div>
+        </div>
+
+        <!-- PROMINENT CLASS CODE DISPLAY SECTION -->
+        <div class="class-code-banner">
+            <div class="class-code-banner-content">
+                <div class="class-code-section">
+                    <div class="class-code-label">YOUR CLASS CODE</div>
+                    <div id="classCodeDisplay" class="class-code-value"></div>
+                    <div class="class-code-actions">
+                        <button class="btn btn--sm btn--primary" onclick="copyClassCode()" id="copyCodeBtn">
+                            📋 Copy Code
+                        </button>
+                        <button class="btn btn--sm btn--secondary" onclick="showQRCode()">
+                            📱 QR Code
+                        </button>
+                        <button class="btn btn--sm btn--secondary" onclick="copyShareLink()" id="copyLinkBtn">
+                            🔗 Copy Link
+                        </button>
+                        <button class="btn btn--sm btn--outline" onclick="printClassCode()">
+                            🖨️ Print
+                        </button>
+                    </div>
+                    <div class="class-code-instruction">Share this code with students to access assignments</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard-container">
+            <!-- Student Management Section -->
+            <div class="dashboard-section">
+                <div class="card">
+                    <div class="card__header">
+                        <h2>👥 Student Management</h2>
+                    </div>
+                    <div class="card__body">
+
+
+                        <!-- Add Student Form -->
+                        <div class="form-group">
+                            <label class="form-label" for="studentName">Student Name</label>
+                            <input type="text" id="studentName" class="form-control" placeholder="Enter student name">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="studentRollNo">Roll Number</label>
+                            <input type="text" id="studentRollNo" class="form-control" placeholder="Enter roll number">
+                        </div>
+                        <button class="btn btn--primary btn--full-width" onclick="addStudent()">Add Student</button>
+                        
+                        <!-- Bulk Add Section -->
+                        <div class="bulk-add-section">
+                            <h4>Bulk Add Students</h4>
+                            <p style="color: var(--color-text-secondary); font-size: var(--font-size-sm); margin-bottom: var(--space-8);">Paste multiple students (one per line: RollNo, Name)</p>
+                            <textarea id="bulkStudentsInput" class="form-control" rows="4" placeholder="Example:
+001, Rahul Kumar
+002, Priya Sharma
+003, Amit Patel"></textarea>
+                            <button class="btn btn--secondary btn--full-width" onclick="bulkAddStudents()" style="margin-top: var(--space-8);">Add Multiple Students</button>
+                        </div>
+
+                        <!-- Export/Import Buttons -->
+                        <div class="student-actions">
+                            <button class="btn btn--sm btn--outline" onclick="exportStudentList()">📥 Export Students</button>
+                            <button class="btn btn--sm btn--outline" onclick="importStudentList()">📤 Import Students</button>
+                        </div>
+                        
+                        <div class="students-list">
+                            <h3>Your Class Students</h3>
+                            <div id="studentsTable"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Assignment & OTP Generation Section -->
+            <div class="dashboard-section">
+                <div class="card">
+                    <div class="card__header">
+                        <h2>Assignment Management</h2>
+                    </div>
+                    <div class="card__body">
+                        <div class="form-group">
+                            <label class="form-label" for="assignmentName">Assignment Name</label>
+                            <input type="text" id="assignmentName" class="form-control" placeholder="Enter assignment name">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="assignmentDueDate">Due Date</label>
+                            <input type="date" id="assignmentDueDate" class="form-control">
+                        </div>
+                        <div id="assignmentStudentCount" style="background-color: var(--color-bg-3); padding: var(--space-12); border-radius: var(--radius-base); margin-bottom: var(--space-12); text-align: center; font-size: var(--font-size-sm);"></div>
+                        <button class="btn btn--primary btn--full-width" onclick="createAssignment()">Create Assignment</button>
+                        
+                        <div class="assignments-list">
+                            <h3>Active Assignments</h3>
+                            <div id="assignmentsList"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submission Tracking Section - STABLE DISPLAY -->
+            <div class="dashboard-section full-width">
+                <div class="card">
+                    <div class="card__header">
+                        <h2>📊 Submission Tracking</h2>
+                        <div id="liveIndicator" class="live-indicator" style="display: none;">
+                            <span class="live-dot">●</span> Live
+                            <span id="lastUpdateTime" class="last-update"></span>
+                        </div>
+                    </div>
+                    <div class="card__body">
+
+                        
+                        <div class="tracking-controls">
+                            <select id="assignmentFilter" class="form-control" onchange="updateSubmissionView()">
+                                <option value="">Select Assignment</option>
+                            </select>
+                            <select id="statusFilter" class="form-control" onchange="updateSubmissionView()">
+                                <option value="all">All Students</option>
+                                <option value="completed">Completed</option>
+                                <option value="pending">Pending</option>
+                            </select>
+                            <input type="text" id="searchFilter" class="form-control" placeholder="Search by name or roll number..." oninput="updateSubmissionView()">
+                        </div>
+                        
+                        <div id="submissionStats" class="stats-container"></div>
+                        
+                        <div id="submissionTableContainer" class="submission-table-container">
+                            <div id="submissionTable"></div>
+                        </div>
+                        
+                        <div class="tracking-footer">
+                            <button class="btn btn--sm btn--secondary" onclick="exportSubmissionData()">📥 Download Submission Report</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Records Management Section -->
+            <div class="dashboard-section full-width">
+                <div class="card">
+                    <div class="card__header">
+                        <h2>Records &amp; Statistics</h2>
+                    </div>
+                    <div class="card__body">
+                        <div id="overallStats" class="overall-stats"></div>
+                        <button class="btn btn--primary" onclick="exportRecords()">Download All Records</button>
+                    </div>
+                </div>
+            </div>
+
+
+        </div>
+    </div>
+
+    <!-- Student Submission View -->
+    <div id="studentView" class="screen">
+        <div class="student-container">
+            <div class="card student-card">
+                <div class="card__body">
+                    <h1>Submit Your Assignment</h1>
+                    <p class="subtitle">Select an assignment and submit with your OTP code</p>
+                    
+                    <!-- Assignment Selection (Direct Access) -->
+                    <div id="assignmentSelectionStep">
+                        <div id="classInfoDisplay" style="background: var(--color-bg-3); padding: var(--space-12); border-radius: var(--radius-base); margin-bottom: var(--space-16); border-left: 4px solid var(--color-success);"></div>
+                        <div id="crossDeviceIndicator" style="display: none; background: var(--color-bg-1); padding: var(--space-12); border-radius: var(--radius-base); margin-bottom: var(--space-16); border-left: 4px solid var(--color-primary); text-align: center;">
+                            <strong style="color: var(--color-primary);">🔗 CROSS-DEVICE MODE</strong><br>
+                            <small style="color: var(--color-text-secondary);">Assignment loaded from shareable link - works on any device!</small>
+                        </div>
+                        <h3 style="font-size: var(--font-size-lg); margin-bottom: var(--space-12); color: var(--color-primary);">📝 Available Assignments</h3>
+                        <div class="form-group">
+                            <label class="form-label" for="selectAssignmentDropdown">Choose Assignment</label>
+                            <select id="selectAssignmentDropdown" class="form-control" onchange="handleAssignmentSelection()">
+                                <option value="">-- Select an assignment --</option>
+                            </select>
+                        </div>
+                        <div id="assignmentsList" class="assignments-selection-list"></div>
+                    </div>
+                    
+                    <!-- Submission Form (shown when assignment selected) -->
+                    <div id="submissionFormStep" style="display: none;">
+                        <div class="selected-assignment-info">
+                            <h3 style="font-size: var(--font-size-lg); margin-bottom: var(--space-12); color: var(--color-primary);">📤 Submit Assignment</h3>
+                            <div id="selectedAssignmentDisplay" class="selected-assignment-display"></div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label" for="submitStudentName">Your Name</label>
+                            <input type="text" id="submitStudentName" class="form-control" placeholder="Enter your name">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label" for="submitStudentRollNo">Roll Number</label>
+                            <input type="text" id="submitStudentRollNo" class="form-control" placeholder="Enter your roll number">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label" for="submitStudentOTP">OTP Code *</label>
+                            <input type="text" id="submitStudentOTP" class="form-control mobile-input" placeholder="Enter your OTP code" maxlength="6" style="text-transform: uppercase; font-family: var(--font-family-mono); font-size: var(--font-size-xl); letter-spacing: 0.1em; text-align: center;">
+                            <small style="color: var(--color-text-secondary); font-size: var(--font-size-sm); display: block; margin-top: var(--space-4);">Enter the OTP code provided by your teacher</small>
+                        </div>
+
+                        
+                        <button class="btn btn--outline btn--full-width" onclick="backToAssignmentSelection()" style="margin-bottom: var(--space-12);">← Select Different Assignment</button>
+                    </div>
+                    
+                    <div id="submissionMessage" class="message" style="display: none;"></div>
+                    
+                    <div class="button-group">
+                        <button id="submitBtn" class="btn btn--primary btn--lg btn--full-width" onclick="submitAssignment()" style="display: none;">Submit Assignment</button>
+                        <button class="btn btn--outline btn--full-width" onclick="goBackToHome()">Back to Home</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="./index_files/app.js.download"></script>
+
+<span id="PING_IFRAME_FORM_DETECTION" style="display: none;"></span></body></html>
